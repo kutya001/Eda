@@ -1,7 +1,7 @@
 'use strict';
-// Запуск: сохранение рабочих данных (TemDB), кнопки «Данные прототипа», первая отрисовка
+// Запуск: сохранение рабочих данных (TemDB), кнопки «Данные прототипа», автоматические задания, первая отрисовка
 /* ═════════════ Start ═════════════ */
-function dbAfter(msg){Object.keys(GS).forEach(k=>delete GS[k]);MODALS.slice().forEach(m=>m.close());closeSheet();closePop();S.me=EMP[0]?EMP[0].id:'admin';store.set('me',S.me);S.mod=null;S.tab=null;
+function dbAfter(msg){Object.keys(GS).forEach(k=>delete GS[k]);MODALS.slice().forEach(m=>m.close());closeSheet();closePop();S.me=EMP[0]?EMP[0].id:'admin';S.offline=false;S.co=null;S.rtrip=null;autoJobs();store.set('me',S.me);S.mod=null;S.tab=null;
   if(location.hash==='#home')route();else location.hash='#home';dbSave();toast(msg,'refresh')}
 function setDataMode(v){DATA_MODE=v;store.set('data',v);dbApply(dbFresh(v));dbAfter(v==='empty'?'Пустая организация: как сразу после регистрации':'Включены демо-данные')}
 function dbAct(k){
@@ -17,6 +17,8 @@ function dbAct(k){
 ['click','change','input','keydown','drop','paste'].forEach(ev=>document.addEventListener(ev,dbSoon,true));
 addEventListener('pagehide',()=>{if(dbT)dbSave()});document.addEventListener('visibilitychange',()=>{if(document.hidden&&dbT)dbSave()});
 if(S.me!=='admin'&&!EM[S.me])S.me=EMP[0]?EMP[0].id:'admin';
+// Автоматические задания (регулярные заказы, закрытие приёма, напоминания): при запуске и раз в минуту; в продукте — на сервере по расписанию
+autoJobs();setInterval(()=>{if(autoJobs()&&!MODALS.length){refreshAll();dbSoon()}},60000);
 initTop();dbSave();
 if(DBMISS.length)setTimeout(()=>toast('В сохранённых рабочих данных не хватало разделов: '+DBMISS.join(', ')+'. Они взяты из шаблона','alert'),600);
 if(!location.hash||location.hash==='#')history.replaceState(null,'','#home');

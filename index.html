@@ -1,10 +1,10 @@
 <!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Прототип: Название приложения v1</title>
+<title>Прототип: Eda v1</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300..800&family=JetBrains+Mono:wght@400;600&display=swap">
 <!-- Тема применяется до отрисовки, без вспышки; ключ = APP.prefix + '.theme' -->
-<script>try{var __t=localStorage.getItem('app.theme');if(__t==='light'||__t==='dark')document.documentElement.setAttribute('data-theme',__t)}catch(e){}</script>
+<script>try{var __t=localStorage.getItem('eda.theme');if(__t==='light'||__t==='dark')document.documentElement.setAttribute('data-theme',__t)}catch(e){}</script>
 <!-- Стили: src/css. Сборка (build.py) объединяет их в один <style> -->
 <link rel="stylesheet" href="src/css/base.css">
 <link rel="stylesheet" href="src/css/shell.css">
@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="src/css/kb.css">
 <link rel="stylesheet" href="src/css/cards.css">
 <link rel="stylesheet" href="src/css/pages.css">
+<link rel="stylesheet" href="src/css/eda.css">
 <link rel="stylesheet" href="src/css/mobile.css">
 </head><body>
 
@@ -29,7 +30,9 @@
       </div>
       <button class="icon-btn tb-mobile" id="q-open" aria-label="Поиск"></button>
     </div>
+    <button class="btn ghost sm tb-other tb-org" id="org-sw" type="button" title="Организация" hidden></button>
     <div class="clock tb-other" id="clock" aria-live="off"></div>
+    <button class="icon-btn tb-other tb-bell" id="bell" aria-label="Уведомления" title="Уведомления"></button>
     <button class="icon-btn tb-other" id="help" aria-label="Помощь" title="Помощь по модулю"></button>
     <button class="icon-btn tb-other" id="theme" aria-label="Переключить тему" title="Светлая / тёмная тема"></button>
   </header>
@@ -42,6 +45,7 @@
 <div class="sheet" id="sheet" role="dialog" aria-label="Меню"></div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
 <!-- Скрипты: src/js. Порядок важен: файл может при загрузке вызывать только то, что объявлено выше.
+     modules/common.js — общие расчёты (меню, заказы, остатки, долги), поэтому первым из модулей;
      core/registry.js ссылается на функции всех модулей, поэтому подключается после них. Сборка (build.py) объединяет их в один <script> -->
 <script src="src/js/core/config.js"></script>
 <script src="src/js/core/icons.js"></script>
@@ -58,9 +62,18 @@
 <script src="src/js/ui/empty.js"></script>
 <script src="src/js/ui/status.js"></script>
 <script src="src/js/ui/import.js"></script>
+<script src="src/js/modules/common.js"></script>
+<script src="src/js/modules/customers.js"></script>
+<script src="src/js/modules/dishes.js"></script>
+<script src="src/js/modules/menu.js"></script>
+<script src="src/js/modules/orders.js"></script>
+<script src="src/js/modules/kitchen.js"></script>
+<script src="src/js/modules/stock.js"></script>
+<script src="src/js/modules/delivery.js"></script>
+<script src="src/js/modules/money.js"></script>
+<script src="src/js/modules/reports.js"></script>
 <script src="src/js/modules/home.js"></script>
-<script src="src/js/modules/clients.js"></script>
-<script src="src/js/modules/requests.js"></script>
+<script src="src/js/modules/cabinet.js"></script>
 <script src="src/js/modules/staff.js"></script>
 <script src="src/js/modules/dicts.js"></script>
 <script src="src/js/modules/org.js"></script>

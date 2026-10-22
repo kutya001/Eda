@@ -7,19 +7,31 @@
    none — нейтральные статусы («Не требуется») вместо шкалы; colors — {статус:[цвет, значок]};
    perm — право на переход вперёд; confirm — {step, perm}: шаг подтверждения, ставит постановщик или сотрудник с правом, но не исполнитель;
    back — {статус:'что изменится при откате в этот статус'}; field — поле ответственного (для «свои» и «не подтверждает своё»).
+   variant — {field, feature, steps}: другие шаги у записи с этим признаком (например, самовывоз без «В пути») или пока выключена функция feature;
+   stepPerm — {шаг: право} своё право на отдельный шаг; '@auto' — шаг ставит система (пояснение в auto[шаг]), '@admin' — администратор платформы;
+   backPerm — право на откат этой шкалы (по умолчанию общее «Откат статусов»).
+   Модуль может: перехватить шаг (SC_HOOK — например, «Доставлен» с фото), добавить свою причину запрета (SC_WHY),
+   выполнить последствия перехода и отката (SC_AFTER — например, создать накладную или списать продукты).
    История статусов хранится в записи: sh=[{at, from, to, who, note, rb}] — не редактируется и не удаляется. */
 const SC=k=>REF.statuses[k];
-const scSteps=(k,o)=>{const D=SC(k);return D.stepsC&&o&&o.confirm?D.stepsC:D.steps};
+// variant.feature — функция учётной политики: пока она выключена, у всех записей шаги варианта (без доставки нет шага «В пути»)
+const scSteps=(k,o)=>{const D=SC(k),V=D.variant;return D.stepsC&&o&&o.confirm?D.stepsC:V&&o&&(o[V.field]||V.feature&&!feat(V.feature))?V.steps:D.steps};
+const SC_HOOK={},SC_WHY={},SC_AFTER={};
+const permOk=p=>p==='@admin'?isAdmin():can(p);
+const canBack=k=>permOk(SC(k).backPerm||'rollback');
+const permTxt=p=>p==='@admin'?'Только администратор платформы':`Нужно право «${(PERM()[p]||{name:p}).name}»`;
 function scPos(k,o){const D=SC(k),st=o.status,steps=scSteps(k,o);let i=steps.indexOf(st),side=null;if(i<0&&D.side&&D.side[st]){side=D.side[st];i=side.at<0?steps.length+side.at:side.at}return {i,side,n:steps.length,steps}}
 const scColor=(k,st)=>((SC(k).colors||{})[st]||['gray'])[0];
 const scPill=(k,st,extra)=>pill(st,SC(k).colors,extra);
 // Следующий шаг: из обычного шага — следующий; из бокового — шаг после того, на котором он стоит; последний и «отменённые» — никуда
 function scNext(k,o){const {i,side,steps}=scPos(k,o);if(side&&side.at<0)return null;const j=i+1;return j<steps.length?steps[j]:null}
 // Шаг назад для отката: из бокового статуса — на его шаг, из обычного — на предыдущий; только один шаг за раз
-function scBack(k,o){const bf=SC(k).backFrom;if(bf&&bf[o.status])return bf[o.status];const {i,side,steps}=scPos(k,o);if(side)return steps[Math.max(0,side.at<0?steps.length-2:side.at)];return i>0?steps[i-1]:null}
+function scBack(k,o){const bf=SC(k).backFrom;if(bf&&bf[o.status])return bf[o.status];const {i,side,steps}=scPos(k,o);if(side){const l=(o.sh||[]).slice().reverse().find(h=>h.to===o.status);if(l&&l.from&&steps.includes(l.from))return l.from}if(side)return steps[Math.max(0,side.at<0?steps.length-2:side.at)];return i>0?steps[i-1]:null}
 // Почему нельзя перейти (null — можно)
-function scWhyNot(k,o,to){const D=SC(k);if(D.confirm&&to===D.confirm.step){const f=D.field||'resp';if(o[f]===S.me)return 'Свою запись подтвердить нельзя';if(o.by!==S.me&&!can(D.confirm.perm))return `Нужно право «${PERM()[D.confirm.perm].name}»`;return null}
-  return D.perm&&!can(D.perm)?`Нужно право «${PERM()[D.perm].name}»`:null}
+function scWhyNot(k,o,to){const D=SC(k);if(SC_WHY[k]){const w=SC_WHY[k](o,to);if(w!==undefined)return w}
+  const sp=(D.stepPerm||{})[to];if(sp==='@auto')return 'Шаг «'+to+'» '+((D.auto||{})[to]||'ставится автоматически');if(sp)return permOk(sp)?null:permTxt(sp);
+  if(D.confirm&&to===D.confirm.step){const f=D.field||'resp';if(o[f]===S.me)return 'Свою запись подтвердить нельзя';if(o.by!==S.me&&!can(D.confirm.perm))return `Нужно право «${PERM()[D.confirm.perm].name}»`;return null}
+  return D.perm&&!permOk(D.perm)?permTxt(D.perm):null}
 function stSince(o){const h=o.sh||[];return h.length?h[h.length-1]:null}
 // Компактная шкала для списков и плиток: точки шагов, «2/4 В работе» и дата установки
 function scaleMini(k,o){const D=SC(k),st=o.status;if(!st)return '<span class="faint">—</span>';const e=stSince(o);
@@ -29,25 +41,26 @@ function scaleMini(k,o){const D=SC(k),st=o.status;if(!st)return '<span class="fa
 // Полная шкала в карточке: следующий шаг кликабелен (с правом), предыдущий — откат (с правом «Откат статусов»); на телефоне — столбиком (CSS)
 function scaleFull(k,o){const D=SC(k),st=o.status;const H=o.sh||[];const when=x=>{for(let q=H.length-1;q>=0;q--)if(H[q].to===x)return H[q].at;return null};
   if((D.none||[]).includes(st))return `<div class="scf-wrap"><span class="scf-t">${esc(D.name)}</span><div class="scf"><span class="scf-none">${ic('ban','sm')}${esc(st)} — шкала не ведётся</span></div></div>`;
-  const {i,side,steps}=scPos(k,o);const nx=scNext(k,o);const nxOk=nx&&!scWhyNot(k,o,nx);const bk=can('rollback')?scBack(k,o):null;const col=scColor(k,st);
+  const {i,side,steps}=scPos(k,o);const nx=scNext(k,o);const nxOk=nx&&!scWhyNot(k,o,nx);const bk=canBack(k)?scBack(k,o):null;const col=scColor(k,st);
   return `<div class="scf-wrap"><span class="scf-t">${esc(D.name)}</span><div class="scf" data-sk="${k}" role="list">${steps.map((x,j)=>{const cls=j<i?'p':j===i?'c sc-'+(side?side.cls==='red'?'red':'faint':col):'f';const goS=nxOk&&x===nx;const back=!goS&&bk===x&&(j<i||(j===i&&side));const w=j<=i?when(j===i&&side?st:x):null;
     return `<button type="button" role="listitem" class="scf-s ${cls} ${goS?'go':''} ${back?'back':''}" ${goS?`data-step="${esc(x)}" title="Перевести в «${esc(x)}»"`:back?`data-back="${esc(x)}" title="Откатить в «${esc(x)}»"`:`tabindex="-1" aria-disabled="true"`} aria-current="${j===i?'step':'false'}"><span class="n">${j<i?ic('check','sm'):j===i&&side?ic(side.cls==='red'?'x':'ban','sm'):j+1}</span><span class="l">${j===i&&side?`${esc(st)}<em class="scf-side">на шаге ${j+1} «${esc(x)}»</em>`:esc(x)}${w?`<small class="scf-at">${fmtDT(w)}</small>`:''}${back?`<small class="scf-bk">${ic('history','sm')}откатить</small>`:''}</span></button>${j<steps.length-1?`<span class="scf-ln ${j<i?'p':''}"></span>`:''}`}).join('')}</div>${nx&&!nxOk?`<span class="hint">Следующий шаг «${esc(nx)}»: ${esc(scWhyNot(k,o,nx))}</span>`:''}</div>`}
 // Подключить кнопки шкалы в карточке; done — перерисовать карточку
 function bindScale(el,k,o,done){$$(`.scf[data-sk="${k}"] [data-step]`,el).forEach(b=>b.onclick=()=>stepTo(k,o,b.dataset.step,done));$$(`.scf[data-sk="${k}"] [data-back]`,el).forEach(b=>b.onclick=()=>rollbackDlg(k,o,b.dataset.back,done))}
 // Переход: то же окно подтверждения, что у кнопки действия; модуль может перехватить шаг (например, «Выполнена» с файлом) через SC_HOOK
-const SC_HOOK={};
 function stepTo(k,o,to,done){const why=scWhyNot(k,o,to);if(why)return toast(why,'alert',true);if(SC_HOOK[k]&&SC_HOOK[k](o,to,done))return;
   confirmDlg({title:`Перевести в «${esc(to)}»?`,text:`Сейчас: «${esc(o.status)}». Переход будет записан в «Историю статусов».`,ok:'Перевести',run:()=>{setStatus(k,o,to);done&&done()}})}
-function setStatus(k,o,to,note,rb){const from=o.status;if(from===to)return;o.sh=o.sh||[];o.sh.push({at:nowStamp(),from,to,who:S.me,note:note||'',rb:!!rb});o.status=to;log(k,o.id,`Статус: ${from} → ${to}${rb?' (откат)':''}${note?` (${note})`:''}`,o);refreshAll();toast(rb?`Откат: «${to}»`:`Статус: «${to}»`,rb?'history':'check')}
-// Откат: только на один шаг, только с правом «Откат статусов», окно с последствиями и обязательной причиной
-function rollbackDlg(k,o,to,done){if(!can('rollback'))return toast('Нужно право «Откат статусов»','alert',true);const D=SC(k);const cons=(D.back||{})[to]||'Запись вернётся на предыдущий шаг.';
+// opt.who — кто ставит ('system' для автоматических шагов), opt.silent — без уведомления внизу экрана и без перерисовки (для пакетных изменений)
+function setStatus(k,o,to,note,rb,opt={}){const from=o.status;if(from===to)return;const who=opt.who||S.me;o.sh=o.sh||[];o.sh.push({at:nowStamp(),from,to,who,note:note||'',rb:!!rb,file:opt.file||''});o.status=to;
+  log(k,o.id,`Статус: ${from} → ${to}${rb?' (откат)':''}${note?` (${note})`:''}`,o,who);if(SC_AFTER[k])SC_AFTER[k](o,from,to,!!rb);if(opt.silent)return;refreshAll();toast(rb?`Откат: «${to}»`:`Статус: «${to}»`,rb?'history':'check')}
+// Откат: только на один шаг, только с правом отката этой шкалы, окно с последствиями и обязательной причиной
+function rollbackDlg(k,o,to,done){if(!canBack(k))return toast(permTxt(SC(k).backPerm||'rollback'),'alert',true);if(SC_WHY[k]){const w=SC_WHY[k](o,to,true);if(w)return toast(w,'alert',true)}const D=SC(k);const cons=(D.back||{})[to]||'Запись вернётся на предыдущий шаг.';
   openModal({form:true,noMax:true,render:()=>({title:`Откатить: «${esc(o.status)}» → «${esc(to)}»`,body:`<div class="note warn">${ic('history')}<span><b>Что изменится.</b> ${esc(cons)}</span></div><div class="form">${fld('Причина',`<textarea class="inp" id="rb-why" rows="3" placeholder="Почему откатываете"></textarea>`,{req:true,full:true,id:'rb-why'})}</div>`,
     foot:'<button class="btn ghost" data-close>Отмена</button><button class="btn danger" id="rb-ok">Откатить</button>',
     mount(el,m){$('#rb-ok',el).onclick=()=>{const w=val(el,'rb-why');if(!setErr(el,'rb-why',w?'':'Укажите причину отката'))return;m.close();setStatus(k,o,to,w,true);done&&done()}}})})}
 function durTxt(ms){if(ms<0)ms=0;const h=ms/36e5;if(h<1)return 'меньше часа';if(h<24)return Math.round(h)+' ч';const d=Math.round(h/24);return d+' '+plural(d,'день','дня','дней')}
 // «История статусов»: когда, было → стало, кто, причина или комментарий, сколько в статусе; на телефоне строки идут одна под другой (CSS)
 function statusHistHtml(k,o){const h=(o.sh||[]).map((e,i,a)=>({...e,ms:stAt(a[i+1]?a[i+1].at:nowStamp())-stAt(e.at),now:!a[i+1]}));if(!h.length)return '<div class="muted">Статус ещё не менялся.</div>';const map=SC(k).colors;const tot={};h.forEach(e=>tot[e.to]=(tot[e.to]||0)+e.ms);
-  return `<div class="sh-blk"><div class="tbl-wrap"><table class="mini sh"><thead><tr><th>Когда</th><th>Статус</th><th>Кто</th><th>Комментарий, причина</th><th class="num">В статусе</th></tr></thead><tbody>${h.slice().reverse().map(e=>`<tr><td class="tnum sh-when">${fmtDT(e.at)}</td><td class="sh-st">${e.from?`<span class="faint">${esc(e.from)} →</span> `:''}${pill(e.to,map,'sm')}</td><td class="sh-who">${esc(whoName(e.who)||'—')}</td><td class="sh-note ${!e.note&&!e.rb?'sh-none':''}">${e.rb?`<span class="pill orange sm">${ic('history')}Откат</span> `:''}${esc(e.note)}${!e.note&&!e.rb?'<span class="faint">—</span>':''}</td><td class="num tnum sh-dur">${durTxt(e.ms)}${e.now?' <span class="faint">· сейчас</span>':''}</td></tr>`).join('')}</tbody></table></div>
+  return `<div class="sh-blk"><div class="tbl-wrap"><table class="mini sh"><thead><tr><th>Когда</th><th>Статус</th><th>Кто</th><th>Комментарий, причина</th><th class="num">В статусе</th></tr></thead><tbody>${h.slice().reverse().map(e=>`<tr><td class="tnum sh-when">${fmtDT(e.at)}</td><td class="sh-st">${e.from?`<span class="faint">${esc(e.from)} →</span> `:''}${pill(e.to,map,'sm')}</td><td class="sh-who">${esc(whoName(e.who)||'—')}</td><td class="sh-note ${!e.note&&!e.rb?'sh-none':''}">${e.rb?`<span class="pill orange sm">${ic('history')}Откат</span> `:''}${esc(e.note)}${e.file?` <img class="sh-ph" src="${e.file}" alt="Фото">`:''}${!e.note&&!e.rb&&!e.file?'<span class="faint">—</span>':''}</td><td class="num tnum sh-dur">${durTxt(e.ms)}${e.now?' <span class="faint">· сейчас</span>':''}</td></tr>`).join('')}</tbody></table></div>
   <div class="sh-sum">${Object.entries(tot).map(([s,ms])=>`<span>${esc(s)}: <b>${durTxt(ms)}</b></span>`).join('')}</div></div>`}
 // Новая запись получает первую строку истории
-function stStart(o,st,note){o.status=st;o.sh=[{at:nowStamp(),from:'',to:st,who:S.me,note:note||''}]}
+function stStart(o,st,note,who){o.status=st;o.sh=[{at:nowStamp(),from:'',to:st,who:who||S.me,note:note||''}]}
