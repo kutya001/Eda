@@ -1,0 +1,480 @@
+{
+ "meta": {
+  "file": "TemDB.json",
+  "version": 2,
+  "description": "Пустая организация: как сразу после регистрации (только владелец, роли по шаблонам и справочники организации)"
+ },
+ "cur": "t1",
+ "tenants": {
+  "t1": {
+   "organization": {
+    "name": "Новая организация",
+    "legal": "",
+    "inn": "",
+    "head": "",
+    "phone": "",
+    "address": "",
+    "bank": "",
+    "logo": "",
+    "tz": "Asia/Bishkek",
+    "sub": "Профиль организации",
+    "features": {
+     "stock": true,
+     "delivery": true,
+     "pickup": false,
+     "custLogin": true,
+     "regular": true,
+     "autoAccept": false,
+     "kbju": true,
+     "tara": false,
+     "journal": false
+    },
+    "policy": {
+     "cutoff": "16:00",
+     "workdays": [
+      1,
+      2,
+      3,
+      4,
+      5
+     ],
+     "delay": 7,
+     "foodcost": 35,
+     "negative": true,
+     "reserve": 0
+    },
+    "policyHistory": [],
+    "imports": [],
+    "seq": {},
+    "support": null,
+    "plat": {
+     "tariff": "Старт",
+     "status": "Пробный период",
+     "paidTo": "",
+     "city": "Бишкек",
+     "created": "",
+     "sh": []
+    }
+   },
+   "roles": [
+    {
+     "id": "owner",
+     "name": "Владелец",
+     "perms": [],
+     "scope": {}
+    },
+    {
+     "id": "manager",
+     "name": "Управляющий",
+     "perms": [
+      "ordView",
+      "ordEdit",
+      "ordAccept",
+      "ordLate",
+      "ordCancel",
+      "ordRegular",
+      "ordPrices",
+      "ordBack",
+      "cuView",
+      "cuEdit",
+      "cuStatus",
+      "cuImport",
+      "cuAccess",
+      "dsView",
+      "dsCost",
+      "mnView",
+      "mnEdit",
+      "mnPublish",
+      "mnBack",
+      "ktView",
+      "ktBack",
+      "skView",
+      "skDocs",
+      "skPrices",
+      "dlView",
+      "dlTrips",
+      "dlLoad",
+      "dlBack",
+      "myView",
+      "myPay",
+      "myDocs",
+      "myCash",
+      "rpView",
+      "rpMoney",
+      "stView",
+      "viewAll",
+      "export",
+      "orgMoney",
+      "dcEdit"
+     ],
+     "scope": {
+      "orders": "all",
+      "customers": "all",
+      "delivery": "all"
+     }
+    },
+    {
+     "id": "chef",
+     "name": "Шеф-повар",
+     "perms": [
+      "ordView",
+      "dsView",
+      "dsEdit",
+      "dsCost",
+      "mnView",
+      "mnEdit",
+      "mnPublish",
+      "ktView",
+      "ktWork",
+      "ktApprove",
+      "ktBack",
+      "skView",
+      "skDocs",
+      "skPrices",
+      "skSup",
+      "rpView",
+      "stView",
+      "export"
+     ],
+     "scope": {
+      "orders": "all"
+     }
+    },
+    {
+     "id": "cook",
+     "name": "Повар",
+     "perms": [
+      "ordView",
+      "dsView",
+      "mnView",
+      "ktView",
+      "ktWork",
+      "skView",
+      "dlView",
+      "dlLoad"
+     ],
+     "scope": {
+      "orders": "all",
+      "delivery": "all"
+     }
+    },
+    {
+     "id": "store",
+     "name": "Кладовщик",
+     "perms": [
+      "dsView",
+      "ktView",
+      "skView",
+      "skDocs",
+      "skPrices",
+      "skSup",
+      "export"
+     ],
+     "scope": {}
+    },
+    {
+     "id": "courier",
+     "name": "Курьер",
+     "perms": [
+      "ordView",
+      "dlView",
+      "dlRoute"
+     ],
+     "scope": {
+      "orders": "own",
+      "delivery": "own"
+     }
+    },
+    {
+     "id": "acc",
+     "name": "Бухгалтер",
+     "perms": [
+      "ordView",
+      "ordPrices",
+      "cuView",
+      "cuEdit",
+      "cuStatus",
+      "myView",
+      "myPay",
+      "myCancel",
+      "myDocs",
+      "myCash",
+      "mySup",
+      "rpView",
+      "rpMoney",
+      "stView",
+      "viewAll",
+      "export",
+      "orgMoney"
+     ],
+     "scope": {
+      "orders": "all",
+      "customers": "all"
+     }
+    },
+    {
+     "id": "customer",
+     "name": "Заказчик",
+     "perms": [],
+     "scope": {},
+     "fixed": true
+    }
+   ],
+   "dicts": {
+    "shift": {
+     "name": "Смены",
+     "icon": "clock",
+     "what": "На какой приём пищи составляется меню и план кухни",
+     "noteLabel": "Время",
+     "items": [
+      {
+       "code": "СМ-001",
+       "name": "Обед",
+       "note": "12:00–14:00",
+       "active": true,
+       "order": 1
+      },
+      {
+       "code": "СМ-002",
+       "name": "Завтрак",
+       "note": "08:00–09:30",
+       "active": false,
+       "order": 2
+      },
+      {
+       "code": "СМ-003",
+       "name": "Ужин",
+       "note": "18:00–19:30",
+       "active": false,
+       "order": 3
+      }
+     ]
+    },
+    "vehicle": {
+     "name": "Транспорт",
+     "icon": "send",
+     "what": "Машины для рейсов",
+     "noteLabel": "Госномер",
+     "items": [
+      {
+       "code": "ТР-001",
+       "name": "Hyundai Porter",
+       "note": "01 KG 123 ABC",
+       "active": true,
+       "order": 1
+      },
+      {
+       "code": "ТР-002",
+       "name": "Daewoo Damas",
+       "note": "01 KG 456 BCD",
+       "active": true,
+       "order": 2
+      },
+      {
+       "code": "ТР-003",
+       "name": "Личный автомобиль курьера",
+       "note": "",
+       "active": true,
+       "order": 3
+      }
+     ]
+    },
+    "district": {
+     "name": "Районы доставки",
+     "icon": "globe",
+     "what": "Чтобы группировать точки при распределении по рейсам",
+     "noteLabel": "Пояснение",
+     "items": [
+      {
+       "code": "РН-001",
+       "name": "Ленинский",
+       "note": "",
+       "active": true,
+       "order": 1
+      },
+      {
+       "code": "РН-002",
+       "name": "Октябрьский",
+       "note": "",
+       "active": true,
+       "order": 2
+      },
+      {
+       "code": "РН-003",
+       "name": "Первомайский",
+       "note": "",
+       "active": true,
+       "order": 3
+      },
+      {
+       "code": "РН-004",
+       "name": "Свердловский",
+       "note": "",
+       "active": true,
+       "order": 4
+      }
+     ]
+    },
+    "cancel": {
+     "name": "Причины отмены",
+     "icon": "ban",
+     "what": "Почему заказ отменён",
+     "noteLabel": "Пояснение",
+     "items": [
+      {
+       "code": "ПО-001",
+       "name": "Заказчик отказался",
+       "note": "",
+       "active": true,
+       "order": 1
+      },
+      {
+       "code": "ПО-002",
+       "name": "Ошибка в заказе",
+       "note": "",
+       "active": true,
+       "order": 2
+      },
+      {
+       "code": "ПО-003",
+       "name": "Нет продуктов",
+       "note": "",
+       "active": true,
+       "order": 3
+      },
+      {
+       "code": "ПО-004",
+       "name": "Долг выше лимита",
+       "note": "",
+       "active": true,
+       "order": 4
+      },
+      {
+       "code": "ПО-005",
+       "name": "Не удалось доставить",
+       "note": "",
+       "active": true,
+       "order": 5
+      }
+     ]
+    },
+    "nd": {
+     "name": "Причины недоставки",
+     "icon": "alert",
+     "what": "Почему курьер не доставил заказ",
+     "noteLabel": "Пояснение",
+     "items": [
+      {
+       "code": "ПН-001",
+       "name": "Не было получателя",
+       "note": "",
+       "active": true,
+       "order": 1
+      },
+      {
+       "code": "ПН-002",
+       "name": "Неверный адрес",
+       "note": "",
+       "active": true,
+       "order": 2
+      },
+      {
+       "code": "ПН-003",
+       "name": "Отказ от заказа",
+       "note": "",
+       "active": true,
+       "order": 3
+      },
+      {
+       "code": "ПН-004",
+       "name": "Не успели к окну доставки",
+       "note": "",
+       "active": true,
+       "order": 4
+      }
+     ]
+    },
+    "wo": {
+     "name": "Причины списания",
+     "icon": "trash",
+     "what": "Почему продукты списаны вручную",
+     "noteLabel": "Пояснение",
+     "items": [
+      {
+       "code": "ПС-001",
+       "name": "Порча",
+       "note": "",
+       "active": true,
+       "order": 1
+      },
+      {
+       "code": "ПС-002",
+       "name": "Истёк срок",
+       "note": "",
+       "active": true,
+       "order": 2
+      },
+      {
+       "code": "ПС-003",
+       "name": "Пробы и дегустация",
+       "note": "",
+       "active": true,
+       "order": 3
+      },
+      {
+       "code": "ПС-004",
+       "name": "Прочее",
+       "note": "",
+       "active": true,
+       "order": 4
+      }
+     ]
+    }
+   },
+   "employees": [
+    {
+     "id": "e1",
+     "fio": "Владелец Организации",
+     "short": "Владелец О.",
+     "phone": "+996 555 000 000",
+     "login": "+996 555 000 000",
+     "role": "owner",
+     "pos": "Директор",
+     "status": "Активен",
+     "active": true,
+     "cust": "",
+     "lastIn": "",
+     "mute": [],
+     "_cb": "e1",
+     "_ub": "e1",
+     "_ca": "",
+     "_ua": ""
+    }
+   ],
+   "customers": [],
+   "products": [],
+   "dishes": [],
+   "combos": [],
+   "menus": [],
+   "templates": [],
+   "orders": [],
+   "regulars": [],
+   "plans": [],
+   "receipts": [],
+   "writeoffs": [],
+   "inventories": [],
+   "suppliers": [],
+   "supPays": [],
+   "trips": [],
+   "nakls": [],
+   "bills": [],
+   "payments": [],
+   "notices": [],
+   "history": []
+  }
+ },
+ "platform": {
+  "log": [],
+  "requests": []
+ }
+}

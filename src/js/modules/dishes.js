@@ -1,0 +1,104 @@
+'use strict';
+// Модуль «Блюда»: блюда с техкартами (версии «с даты», полуфабрикаты, себестоимость, фудкост, КБЖУ), комплексы, архив
+/* ═════════════ Блюда и техкарты ═════════════ */
+function dsTabs(){return [{id:'list',label:'Блюда',icon:'list',count:DISHES.filter(d=>d.status==='Активно').length},{id:'combo',label:'Комплексы',icon:'layers',count:COMBOS.filter(c=>c.status==='Активно').length},{id:'arc',label:'Архив',icon:'archive'}]}
+function dsAdd(){return can('dsEdit')?[{label:'Блюдо',icon:'list',run:()=>dishDlg()},{label:'Комплекс',icon:'layers',run:()=>comboDlg()}]:[]}
+const fcNorm=()=>ORG.policy.foodcost||35;
+function dsCols(){const money=canCost();return [
+  {key:'photo',label:'Фото',type:'text',w:64,val:d=>d.photo?'есть':'',html:d=>d.photo?`<img class="ds-ph" src="${d.photo}" alt="">`:`<span class="ds-ph none">${ic('list','sm')}</span>`},
+  {key:'name',label:'Название',type:'text',w:230,val:d=>d.name,html:d=>`${esc(d.name)}${d.semi?' <span class="pill gray sm">полуфабрикат</span>':''}${!dishVer(d)?' <span class="pill orange sm">нет техкарты</span>':''}`},
+  {key:'cat',label:'Категория',type:'enum',w:130,val:d=>catName(d)},
+  {key:'out',label:'Выход',type:'int',w:90,num:1,val:d=>d.out,text:d=>d.out+' '+d.unit},
+  money&&{key:'cost',label:'Себестоимость, сом',type:'money',w:140,num:1,val:d=>Math.round(dishCost(d,TODAY)*100)/100},
+  money&&{key:'price',label:'Цена, сом',type:'money',w:110,num:1,val:d=>d.semi?null:d.price},
+  money&&{key:'fc',label:'Фудкост, %',type:'num',w:110,num:1,val:d=>d.semi?null:Math.round(foodcost(d,TODAY)*10)/10,html:d=>{if(d.semi)return '<span class="faint">—</span>';const f=foodcost(d,TODAY);return f==null?'':`<span class="${f>fcNorm()?'red':''}">${fmtN(f,1)}${f>fcNorm()?' '+ic('alert','sm'):''}</span>`}},
+  {key:'allerg',label:'Аллергены',type:'text',w:180,val:d=>allergTxt(d.allergens)},
+  feat('kbju')&&{key:'kcal',label:'Калории',type:'int',w:100,num:1,val:d=>{const k=dishKbju(d,TODAY);return k?k[0]:null}},
+  money&&{key:'mk',label:'Наценка, %',type:'num',w:110,num:1,val:d=>d.semi?null:Math.round((markup(d,TODAY)||0)*10)/10},
+  {key:'tc',label:'Техкарта',type:'enum',w:100,val:d=>dishVer(d)?'Есть':'Нет'}].filter(Boolean)}
+function renderDishes(body,tab,fresh){
+  if(tab==='combo')return renderCombos(body,fresh);
+  const act=DISHES.filter(d=>d.status==='Активно'&&!d.semi);const hi=canCost()?act.filter(d=>foodcost(d,TODAY)>fcNorm()):[];const noTc=act.filter(d=>!dishVer(d));const gid='ds-'+tab;
+  body.innerHTML=(tab==='list'?`<div class="plates">${plate({id:'all',icon:'list',color:'blue',label:'Блюд в работе',value:act.length,sub:DISHES.filter(d=>d.semi&&d.status==='Активно').length+' полуфабрикатов'})}
+    ${canCost()?plate({id:'fc',icon:'alert',color:hi.length?'red':'green',label:'Фудкост выше нормы',value:hi.length,sub:'норма '+fcNorm()+' %'}):''}
+    ${plate({id:'notc',icon:'file',color:noTc.length?'orange':'green',label:'Без техкарты',value:noTc.length,sub:'продаются без списания'})}</div>`:'')+'<div id="dsg"></div>';
+  if(tab==='list')body.querySelector('.plates').onclick=e=>{const b=e.target.closest('[data-plate]');if(!b||!GS[gid])return;const s=GS[gid];s.filters={};if(b.dataset.plate==='fc')s.filters.fc={type:'num',from:fcNorm()+0.01,to:null};if(b.dataset.plate==='notc')s.filters.tc={type:'enum',vals:['Нет']};s.page=0;renderPage()};
+  grid($('#dsg',body),{id:gid,cols:dsCols(),show:['photo','name','cat','out','cost','price','fc'],rows:()=>DISHES.filter(d=>tab==='arc'?d.status==='В архиве':d.status==='Активно').sort((a,b)=>COLL.compare(a.name,b.name)),title:'name',group:['cat'],noun:['блюдо','блюда','блюд'],xlsName:'Блюда',
+    sort:{key:'cat',dir:1},ordered:true,actions:dsActions,open:openDish,preset:S.preset,simulateLoad:fresh,rowClass:d=>canCost()&&!d.semi&&foodcost(d,TODAY)>fcNorm()?'warn':'',
+    empty:{icon:'list',title:tab==='arc'?'В архиве пусто':'Блюд пока нет',add:tab==='list'&&can('dsEdit')?()=>dishDlg():null}})}
+function dsActions(d){return [{label:'Открыть',icon:'right',run:()=>openDish(d)},can('dsEdit')&&d.status==='Активно'&&{label:'Изменить',icon:'edit',run:()=>dishDlg(d)},can('dsEdit')&&{label:'Новая версия техкарты',icon:'file',run:()=>techDlg(d)},
+  can('dsEdit')&&{label:'Копировать',icon:'copy',run:()=>dishDlg(null,d)},{label:'Распечатать техкарту',icon:'file',run:()=>printTech(d)},{sep:1},
+  can('dsEdit')&&(d.status==='Активно'?{label:'В архив',icon:'archive',danger:true,run:()=>confirmDlg({title:'Отправить блюдо в архив?',text:`«${esc(d.name)}» нельзя будет добавить в новое меню. В старых меню, заказах и отчётах оно останется.`,ok:'В архив',danger:true,run:()=>{d.status='В архиве';log('dish',d.id,'Блюдо отправлено в архив',d);refreshAll();toast('Блюдо в архиве','archive')}})}:
+    {label:'Вернуть из архива',icon:'refresh',run:()=>{d.status='Активно';log('dish',d.id,'Блюдо возвращено из архива',d);refreshAll();toast('Блюдо снова в работе')}})]}
+const tcLine=(l,date)=>{if(l.d){const s=DSM[l.d];return {name:(s?s.name:'?')+' (п/ф)',unit:'г',price:s?dishCost(s,date)/(s.out||1)*1000:0,k:1000}}const p=PRM[l.p]||{};return {name:p.name||'?',unit:p.unit==='шт'?'шт':p.unit==='л'?'мл':'г',price:avgPrice(l.p),k:p.unit==='шт'?1:1000}};
+// Таблица техкарты: продукт, брутто, нетто, обработка, цена за единицу, стоимость; без права «Видеть цены и себестоимость» — без денег
+function techTable(d,v,date){if(!v)return `<div class="state">${ic('file','lg')}<b>Техкарты пока нет</b><span>Блюдо можно продавать с отметкой «Нет техкарты» — без списания продуктов.</span></div>`;const money=canCost();let tot=0,out=0;
+  const rows=v.lines.map(l=>{const x=tcLine(l,date);const cost=l.b*x.price/x.k;tot+=cost;out+=x.unit==='шт'?0:l.n;return `<tr><td>${esc(x.name)}</td><td class="num tnum">${fmtN(l.b,1)} ${x.unit}</td><td class="num tnum">${fmtN(l.n,1)} ${x.unit}</td><td>${esc(l.proc||'')}</td>${money?`<td class="num tnum">${fmtM(x.price)}/${x.unit==='шт'?'шт':x.unit==='мл'?'л':'кг'}</td><td class="num tnum">${fmtM(cost)}</td>`:''}</tr>`}).join('');
+  return `<div class="tbl-wrap"><table class="mini"><thead><tr><th>Продукт</th><th class="num">Брутто</th><th class="num">Нетто</th><th>Обработка</th>${money?'<th class="num">Цена за ед., сом</th><th class="num">Стоимость, сом</th>':''}</tr></thead><tbody>${rows}</tbody>
+    <tfoot><tr><td>Итого</td><td></td><td class="num tnum">выход ${d.out} ${d.unit}</td><td></td>${money?`<td></td><td class="num tnum"><b>${fmtM(tot)}</b></td>`:''}</tr></tfoot></table></div>
+    ${money&&!d.semi?`<div class="kv" style="margin-top:10px">${kv('Себестоимость порции',money_(tot))}${kv('Цена продажи',money_(d.price))}${kv('Фудкост',d.price?`<span class="${tot/d.price*100>fcNorm()?'red':''}">${fmtN(tot/d.price*100,1)} %</span>`:'—')}${kv('Наценка',tot?fmtN((d.price-tot)/tot*100,1)+' %':'—')}</div>`:''}`}
+const money_=n=>money(Math.round(n*100)/100);
+function openDish(d){if(!d)return;let tab='main',vi=null;
+  openModal({size:'wide',live:true,render:m=>{const v=dishVer(d,TODAY);const vs=(d.versions||[]).slice().sort((a,b)=>a.from<b.from?1:-1);const k=dishKbju(d,TODAY);
+    const tabs=[['main','Данные','list'],['tc','Техкарта','file'],['ver','Версии','history',vs.length||''],['sales','Продажи','chart'],['hist','История','list']];let body=cardTabs(tabs,tab,'dt');
+    if(tab==='main')body+=`<div class="box ds-head">${d.photo?`<img class="ds-big" src="${d.photo}" alt="">`:''}<div class="kv" style="flex:1">${kv('Категория',esc(catName(d)))}${kv('Выход порции',d.out+' '+d.unit)}${!d.semi&&canCost()?kv('Цена продажи',money(d.price)):''}${canCost()?kv('Себестоимость',money_(dishCost(d,TODAY))):''}
+      ${kv('Время приготовления',d.time?d.time+' мин':'')}${kv('Статус',d.status)}${feat('kbju')?kv('КБЖУ на порцию',kbjuTxt(k))+kv('Аллергены',esc(allergTxt(d.allergens))||'Нет'):''}
+      ${kv('Описание для заказчика',esc(d.desc),1)}${kv('Технология приготовления',esc(d.tech),1)}${auditKv(d)}</div></div>`;
+    if(tab==='tc')body+=`<div class="box"><h3>Действует с ${v?fmtD(v.from):'—'}${v&&v.note?` · <span class="faint">${esc(v.note)}</span>`:''}</h3>${techTable(d,v,TODAY)}</div>`;
+    if(tab==='ver')body+=vs.length?`<div class="list">${vs.map((x,i)=>`<button class="li" data-v="${i}" style="text-align:left"><span class="pl-dot ${x===v?'green':'gray'}">${ic('file')}</span><div class="grow"><div class="t1">С ${fmtD(x.from)}${x===v?' <span class="pill green sm">действует</span>':x.from>TODAY?' <span class="pill blue sm">будущая</span>':''}</div><div class="t2">${esc(x.note||'')} · ${esc(whoName(x.who))}, ${fmtDT(x.at)}${canCost()?' · себестоимость '+money_(Object.entries(dishNeeds({...d,versions:[x]},1)).reduce((a,[p,q])=>a+q*avgPrice(p),0)):''}</div></div>${ic('right')}</button>`).join('')}</div>${vi!=null?`<div class="box"><h3>Версия с ${fmtD(vs[vi].from)}</h3>${techTable(d,vs[vi],vs[vi].from)}</div>`:''}`:`<div class="muted">Версий нет.</div>`;
+    if(tab==='sales'){const s=dishSales()[d.id]||{};const days=Object.keys(s).sort().reverse();const tot=days.reduce((a,x)=>a+s[x],0);
+      body+=days.length?`<div class="plates">${plate({id:'t',icon:'chart',color:'blue',label:'Порций за период',value:fmtN(tot,0),sub:days.length+' '+plural(days.length,'день','дня','дней')})}${plate({id:'a',icon:'gauge',color:'purple',label:'В среднем в день',value:fmtN(tot/days.length,0)})}</div><div class="box"><table class="mini"><thead><tr><th>Дата</th><th class="num">Порций</th></tr></thead><tbody>${days.map(x=>`<tr><td>${dayLbl(x)}${relDay(x)?' · '+relDay(x):''}</td><td class="num tnum">${s[x]}</td></tr>`).join('')}</tbody></table></div>`:`<div class="muted">Продаж пока нет.</div>`}
+    if(tab==='hist')body+=histBlock(null,'dish',d);
+    return {title:esc(d.name),sub:esc(catName(d))+(d.semi?' · полуфабрикат':'')+(d.status!=='Активно'?' · в архиве':''),body,
+      foot:`<button class="btn" id="ds-more">${ic('more','sm')}Действия</button><div class="grow"></div><button class="btn" id="ds-pr">${ic('file','sm')}Распечатать техкарту</button>${can('dsEdit')?`<button class="btn" id="ds-tc">${ic('file','sm')}Новая версия техкарты</button><button class="btn cta" id="ds-ed">${ic('edit','sm')}Изменить</button>`:''}`,
+      mount(el){bindCardTabs(el,'dt',t=>{tab=t;m.draw()});$('#ds-more',el).onclick=e=>menu(e.currentTarget,dsActions(d).filter(x=>x&&x.label!=='Открыть'));$('#ds-pr',el).onclick=()=>printTech(d);
+        if($('#ds-tc',el))$('#ds-tc',el).onclick=()=>techDlg(d);if($('#ds-ed',el))$('#ds-ed',el).onclick=()=>dishDlg(d);$$('[data-v]',el).forEach(b=>b.onclick=()=>{vi=+b.dataset.v;m.draw()})}}}})}
+function dishDlg(d,copy){const isNew=!d;const src=d||copy;const st={photo:src?src.photo:''};
+  openModal({form:true,render:()=>({title:isNew?(copy?'Копия блюда':'Новое блюдо'):'Изменить блюдо',sub:src?esc(src.name):'',body:`<div class="form">
+    ${fld('Название',inp('df-n',d?d.name:copy?copy.name+' (копия)':''),{req:true,full:true,id:'df-n'})}
+    ${fld('Категория',sel('df-c',dictOpts('dishCat',src&&src.cat),src?src.cat:'КБ-002'),{req:true,id:'df-c',hint:'«Полуфабрикат» — не продаётся, входит в техкарты других блюд'})}
+    ${fld('Выход порции',`<div class="row" style="gap:6px;flex-wrap:nowrap">${inp('df-o',src?src.out:'','inputmode="numeric" style="max-width:110px"')}${sel('df-u',[['г','г'],['мл','мл'],['шт','шт']],src?src.unit:'г','style="max-width:80px"')}</div>`,{req:true,id:'df-o'})}
+    ${fld('Цена продажи, '+APP.currency,inp('df-p',src&&src.price?String(src.price).replace('.',','):'','inputmode="decimal"'),{req:true,id:'df-p',hint:'Для полуфабриката — 0'})}
+    ${fld('Время приготовления, мин',inp('df-t',src?src.time||'':'','inputmode="numeric"'),{id:'df-t'})}
+    ${feat('kbju')?fld('Аллергены',`<div class="chips">${DICT.allergen.items.filter(x=>x.active!==false).map(x=>`<label class="chip"><input type="checkbox" data-al="${x.code}" ${src&&src.allergens.includes(x.code)?'checked':''}>${esc(x.name)}</label>`).join('')}</div>`,{full:true,id:'df-a'}):''}
+    ${fld('Фото',photoFld('df-ph',st.photo),{full:true,id:'df-ph'})}
+    ${fld('Описание для заказчика',`<textarea class="inp" id="df-d" rows="2">${esc(src?src.desc:'')}</textarea>`,{full:true,id:'df-d'})}
+    ${fld('Технология приготовления',`<textarea class="inp" id="df-x" rows="3">${esc(src?src.tech:'')}</textarea>`,{full:true,id:'df-x'})}</div>${isNew?`<div class="hint">${copy?'Техкарта будет скопирована. ':''}Техкарту можно заполнить после сохранения: «Новая версия техкарты».</div>`:''}`,
+    foot:`<button class="btn ghost" data-close>Отмена</button><button class="btn cta" id="df-ok">${isNew?'Добавить':'Сохранить'}</button>`,
+    mount(el,m){bindPhoto(el,'df-ph',st);$('#df-ok',el).onclick=()=>{const n=val(el,'df-n'),o=num(val(el,'df-o')),p=num(val(el,'df-p')||'0'),c=val(el,'df-c');
+      let ok=setErr(el,'df-n',n?'':'Укажите название');ok=setErr(el,'df-n',DISHES.some(x=>x.name.toLowerCase()===n.toLowerCase()&&x!==d)?'Блюдо с таким названием уже есть':n?'':'Укажите название')&&ok;
+      ok=setErr(el,'df-o',!(o>0)?'Укажите выход порции':'')&&ok;ok=setErr(el,'df-p',isNaN(p)||p<0||(c!=='КБ-009'&&!p)?'Укажите цену продажи':'')&&ok;if(!ok)return;
+      const v={name:n,cat:c,out:o,unit:val(el,'df-u'),price:p,time:num(val(el,'df-t'))||0,allergens:$$('[data-al]',el).filter(x=>x.checked).map(x=>x.dataset.al),photo:st['df-ph']||st.photo||'',desc:val(el,'df-d'),tech:val(el,'df-x'),semi:c==='КБ-009'};
+      if(isNew){const x=born({id:uid('d'),...v,status:'Активно',versions:copy?structuredClone(copy.versions).map(q=>({...q,at:nowStamp(),who:S.me,note:'Скопировано из «'+copy.name+'»'})):[]});DISHES.push(x);log('dish',x.id,'Блюдо добавлено',x);m.close();refreshAll();toast('Блюдо добавлено');openDish(DSM[x.id])}
+      else{Object.entries(v).forEach(([k,x])=>{if(JSON.stringify(d[k])!==JSON.stringify(x)){if(k!=='photo')log('dish',d.id,`${k}: ${d[k]??'—'} → ${x}`,d);d[k]=x}});m.close();refreshAll();toast('Сохранено')}}}})})}
+// Новая версия техкарты «с даты»: уже утверждённые планы кухни считаются по старой версии
+function techDlg(d){const cur=dishVer(d,TODAY);const st={rows:cur?structuredClone(cur.lines).map(l=>({src:l.d?'d:'+l.d:'p:'+l.p,b:l.b,n:l.n,proc:l.proc||''})):[{src:'',b:'',n:'',proc:''}]};
+  const opts=()=>[...PRODS.slice().sort((a,b)=>COLL.compare(a.name,b.name)).map(p=>['p:'+p.id,`${p.name} (${p.unit==='шт'?'шт':p.unit==='л'?'мл':'г'})`]),...DISHES.filter(x=>x.semi&&x.id!==d.id&&x.status==='Активно').map(x=>['d:'+x.id,x.name+' (полуфабрикат, г)'])];
+  const cols=[{key:'src',label:'Продукт или полуфабрикат',type:'sel',w:250,opts,req:1},{key:'b',label:'Брутто',type:'num',w:90,req:1},{key:'n',label:'Нетто',type:'num',w:90,req:1},{key:'proc',label:'Обработка',type:'text',w:120}];
+  const sum=()=>{const v={lines:st.rows.filter(r=>r.src&&r.b>0).map(r=>{const[t,id]=r.src.split(':');return t==='d'?{d:id,b:+r.b,n:+r.n||+r.b}:{p:id,b:+r.b,n:+r.n||+r.b}}),from:'0000'};const c=Object.entries(dishNeeds({...d,versions:[v]},1)).reduce((a,[p,q])=>a+q*avgPrice(p),0);return canCost()?`Себестоимость порции: <b>${money_(c)}</b>${d.price&&!d.semi?` · фудкост <b class="${c/d.price*100>fcNorm()?'red':''}">${fmtN(c/d.price*100,1)} %</b>`:''}`:''};
+  openModal({form:true,size:'wide',render:m=>({title:'Новая версия техкарты',sub:esc(d.name)+` · выход ${d.out} ${d.unit}`,body:`<div class="form">${fld('Действует с',inp('tc-f',TODAY,'type="date"'),{req:true,id:'tc-f',hint:'Планы кухни, утверждённые раньше, не пересчитываются'})}${fld('Что изменилось',inp('tc-w',''),{id:'tc-w'})}
+    ${fld('Состав',linesHtml('tc-l',st.rows,cols,{add:'Добавить продукт'}),{full:true,id:'tc-l',hint:'Брутто и нетто — в граммах или миллилитрах на одну порцию, для штучных продуктов — в штуках'})}</div><div class="note" id="tc-sum">${ic('coins')}<span>${sum()}</span></div>`,
+    foot:'<button class="btn ghost" data-close>Отмена</button><button class="btn cta" id="tc-ok">Сохранить версию</button>',
+    mount(el){bindLines(el,'tc-l',st.rows,cols,{blank:()=>({src:'',b:'',n:'',proc:''}),redraw:()=>keepForm(el,m),onChange:(r,k)=>{if(k==='b'&&(r.n===''||r.n==null)){r.n=r.b}const s=$('#tc-sum span',el);if(s)s.innerHTML=sum()}});
+      $('#tc-ok',el).onclick=()=>{const f=val(el,'tc-f');const rows=st.rows.filter(r=>r.src);let ok=setErr(el,'tc-f',f?'':'Укажите дату');ok=setErr(el,'tc-l',!rows.length?'Добавьте хотя бы один продукт':rows.some(r=>!(r.b>0)||!(r.n>0))?'Укажите брутто и нетто больше нуля':rows.some(r=>r.n>r.b)?'Нетто не может быть больше брутто':'')&&ok;if(!ok)return;
+        const lines=rows.map(r=>{const[t,id]=r.src.split(':');return t==='d'?{d:id,b:+r.b,n:+r.n,proc:r.proc}:{p:id,b:+r.b,n:+r.n,proc:r.proc}});d.versions=(d.versions||[]).filter(v=>v.from!==f);d.versions.push({from:f,lines,at:nowStamp(),who:S.me,note:val(el,'tc-w')});
+        log('dish',d.id,`Новая версия техкарты с ${fmtD(f)}${val(el,'tc-w')?': '+val(el,'tc-w'):''}`,d);m.close();refreshAll();toast('Версия техкарты сохранена','file')}}})})}
+function printTech(d){const v=dishVer(d,TODAY);printDlg('Техкарта: '+d.name,`${docHead('Технологическая карта',`действует с ${v?fmtD(v.from):'—'}`)}<h2>${esc(d.name)}</h2><p>Категория: ${esc(catName(d))} · выход ${d.out} ${d.unit}${d.time?' · '+d.time+' мин':''}</p>${techTable(d,v,TODAY)}${d.tech?`<h3>Технология</h3><p>${esc(d.tech)}</p>`:''}${feat('kbju')?`<p>КБЖУ: ${kbjuTxt(dishKbju(d,TODAY))}. Аллергены: ${esc(allergTxt(d.allergens)||'нет')}</p>`:''}`)}
+
+/* ═════════════ Комплексы ═════════════ */
+const comboCost=(c,date)=>{const m=menuOf(date);return Object.entries(expandLine({kind:'c',id:c.id,qty:1},m)).reduce((a,[id,q])=>a+(DSM[id]?dishCost(DSM[id],date)*q:0),0)};
+function renderCombos(body,fresh){body.innerHTML='<div id="cbg"></div>';const money=canCost();
+  grid($('#cbg',body),{id:'combos',cols:[{key:'name',label:'Комплекс',type:'text',w:200,val:c=>c.name},{key:'slots',label:'Состав',type:'text',w:380,val:c=>c.slots.map(s=>s.dish?(DSM[s.dish]||{}).name:s.slot+' по меню дня').join(', ')},
+    money&&{key:'price',label:'Цена, сом',type:'money',w:110,num:1,val:c=>c.price},money&&{key:'cost',label:'Себестоимость сегодня, сом',type:'money',w:170,num:1,val:c=>Math.round(comboCost(c,TODAY)*100)/100},{key:'st',label:'Статус',type:'enum',w:110,val:c=>c.status}].filter(Boolean),
+    rows:()=>COMBOS,title:'name',noun:['комплекс','комплекса','комплексов'],open:c=>comboDlg(c),rowClass:c=>c.status!=='Активно'?'muted':'',simulateLoad:fresh,
+    actions:c=>[can('dsEdit')&&{label:'Изменить',icon:'edit',run:()=>comboDlg(c)},can('dsEdit')&&{label:c.status==='Активно'?'В архив':'Вернуть из архива',icon:'archive',run:()=>{c.status=c.status==='Активно'?'В архиве':'Активно';log('combo',c.id,'Статус: '+c.status,c);refreshAll()}}],
+    empty:{icon:'layers',title:'Комплексов пока нет',add:can('dsEdit')?()=>comboDlg():null}})}
+function comboDlg(c){const isNew=!c;const ro=!can('dsEdit');const st={rows:c?structuredClone(c.slots):[{slot:'Первое',dish:''},{slot:'Второе',dish:''},{slot:'Гарнир',dish:''},{slot:'Салат',dish:''},{slot:'Напиток',dish:''},{slot:'Хлеб',dish:''}]};
+  const slots=()=>DICT.dishCat.items.filter(x=>x.active!==false&&x.code!=='КБ-009').map(x=>[x.name,x.name]);
+  const cols=[{key:'slot',label:'Слот',type:'sel',w:150,opts:slots,req:1},{key:'dish',label:'Блюдо',type:'sel',w:260,opts:r=>[['','По меню дня'],...DISHES.filter(d=>d.status==='Активно'&&!d.semi&&catName(d)===r.slot).map(d=>[d.id,d.name])]}];
+  openModal({form:!ro,size:'mid',render:m=>({title:isNew?'Новый комплекс':esc(c.name),sub:'Слот «По меню дня» заполняется блюдом, выбранным в меню на дату',body:`<div class="form">${fld('Название',inp('cb-n',c?c.name:'',ro?'readonly':''),{req:true,full:true,id:'cb-n'})}${fld('Цена комплекса, '+APP.currency,inp('cb-p',c?String(c.price).replace('.',','):'','inputmode="decimal" '+(ro?'readonly':'')),{req:true,id:'cb-p'})}
+    ${fld('Состав',linesHtml('cb-l',st.rows,cols,{add:'Добавить слот',ro}),{full:true,id:'cb-l'})}</div>${c&&canCost()?`<div class="note">${ic('coins')}<span>Себестоимость по меню на сегодня: <b>${money_(comboCost(c,TODAY))}</b></span></div>`:''}`,
+    foot:ro?'<button class="btn cta" data-close>Закрыть</button>':`<button class="btn ghost" data-close>Отмена</button><button class="btn cta" id="cb-ok">${isNew?'Добавить':'Сохранить'}</button>`,
+    mount(el){if(ro)return;bindLines(el,'cb-l',st.rows,cols,{blank:()=>({slot:'Салат',dish:''}),redraw:()=>keepForm(el,m),onChange:(r,k)=>{if(k==='slot'){r.dish='';keepForm(el,m)}}});
+      $('#cb-ok',el).onclick=()=>{const n=val(el,'cb-n'),p=num(val(el,'cb-p'));let ok=setErr(el,'cb-n',n?'':'Укажите название');ok=setErr(el,'cb-p',!(p>0)?'Укажите цену':'')&&ok;ok=setErr(el,'cb-l',!st.rows.length?'Добавьте слоты':'')&&ok;if(!ok)return;
+        const v={name:n,price:p,slots:st.rows.filter(r=>r.slot)};if(isNew){const x=born({id:uid('k'),...v,status:'Активно'});COMBOS.push(x);log('combo',x.id,'Комплекс добавлен',x)}else{Object.assign(c,v);log('combo',c.id,'Комплекс изменён',c)}m.close();refreshAll();toast('Сохранено')}}})})}

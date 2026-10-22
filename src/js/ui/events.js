@@ -4,7 +4,7 @@
 document.addEventListener('click',e=>{
   const t=e.target;let b;
   if(b=t.closest('[data-tog]')){const id=b.dataset.tog;S.open.has(id)?S.open.delete(id):S.open.add(id);store.set('tree',[...S.open]);renderSide();return}
-  if(t.closest('#org-open')||t.closest('[data-sh=org]')){closeSheet();go('org','main');return}
+  if(t.closest('#org-open')||t.closest('[data-sh=org]')){closeSheet();const ts=myTenants();if(ts.length>1){const a=t.closest('#org-open,[data-sh=org]');menu(a,ts.map(x=>({label:x.name,icon:'landmark',on:x.id===DB.cur,run:()=>{if(x.id!==DB.cur)switchTenant(x.id)}})).concat(isCust()?[]:[{sep:1},{label:'Профиль организации',icon:'right',run:()=>go('org','main')}]));return}if(!isCust())go('org','main');return}
   if(t.closest('#me-open')||t.closest('[data-sh=me]')){closeSheet();profileDlg();return}
   if(t.closest('#logout')||t.closest('[data-sh=out]')){closeSheet();logoutDlg();return}
   if(b=t.closest('[data-shmod]')){closeSheet();go(b.dataset.shmod);return}

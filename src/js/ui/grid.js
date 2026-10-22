@@ -5,7 +5,7 @@ const GS={};let ACTIVE=[];let FAIL_NEXT=false;const CLOSED=new Set();
 const norm=s=>String(s??'').toLowerCase().replace(/ё/g,'е').replace(/ /g,' ');
 const strip=s=>norm(s).replace(/[\s\-()+.,№«»"]/g,'');
 const COLL=new Intl.Collator('ru',{numeric:true,sensitivity:'base'});
-function gst(cfg){let s=GS[cfg.id];if(!s){const sv=store.get('g5.'+cfg.id,{});s=GS[cfg.id]={view:sv.view||null,density:sv.density||'normal',width:sv.width||'full',hidden:new Set(sv.hidden||defHidden(cfg)),order:sv.order||null,widths:sv.widths||{},sort:sv.sort!==undefined?sv.sort:defSort(cfg),group:sv.group||[],agg:sv.agg||{},closed:new Set(),filters:{},page:0,size:sv.size||25,sel:new Set()}}return s}
+function gst(cfg){let s=GS[cfg.id];if(!s){const sv=store.get('g5.'+cfg.id,{});s=GS[cfg.id]={view:sv.view||null,density:sv.density||'normal',width:sv.width||'full',hidden:new Set(sv.hidden||defHidden(cfg)),order:sv.order||null,widths:sv.widths||{},sort:sv.sort!==undefined?sv.sort:defSort(cfg),group:sv.group||cfg.group||[],agg:sv.agg||{},closed:new Set(),filters:{},page:0,size:sv.size||25,sel:new Set()}}return s}
 /* Сортировка по умолчанию во всех списках — от новых к старым по «Создано» */
 // Видимые по умолчанию столбцы задаёт модуль: cfg.show=['ключ',…] (5–8 столбцов); без show — скрыты столбцы с hide:1
 function defHidden(cfg){const keys=cfg.cols.map(c=>c.key);if(!cfg.show)return cfg.cols.filter(c=>c.hide).map(c=>c.key);return keys.filter(k=>!cfg.show.includes(k))}
@@ -113,7 +113,7 @@ function grid(host,cfg){
     const walk=arr=>arr.map(gr=>grpTr(gr)+(s.closed.has(gr.path)?'':gr.sub?walk(gr.sub):gr.rows.map(rowTr).join(''))).join('');
     h+=gt?walk(gt):pr.map(rowTr).join('');
     h+='</tbody>';
-    if(vc.some(c=>c.total)){h+=`<tfoot><tr>${selCol?'<td></td>':''}${vc.map((c,i)=>c.total?`<td class="num">${fmtM(rows.reduce((a,r)=>a+(+c.val(r)||0),0))}</td>`:i===0?`<td>Итого по фильтру · ${rows.length}</td>`:'<td></td>').join('')}${cfg.actions?'<td></td>':''}</tr></tfoot>`}
+    if(vc.some(c=>c.total)){h+=`<tfoot><tr>${selCol?'<td></td>':''}${vc.map((c,i)=>c.total?`<td class="num">${fmtM(rows.reduce((a,r)=>a+(+c.val(r)||0),0),c.type!=='int')}</td>`:i===0?`<td>Итого по фильтру · ${rows.length}</td>`:'<td></td>').join('')}${cfg.actions?'<td></td>':''}</tr></tfoot>`}
     return h+'</table></div>';
   }
   function cardsHtml(pr,vc,rows,gt){
@@ -124,7 +124,7 @@ function grid(host,cfg){
     const walk=arr=>arr.map(gr=>{const open=!s.closed.has(gr.path);return `<div class="gc-grp lv${gr.lv}"><button class="g-tg" data-g="${esc(gr.path)}" aria-expanded="${open}">${ic(open?'down':'right','sm')}<b>${esc(gr.label)}</b><span class="g-c">${gr.rows.length}</span></button>${nums.length?`<span class="gc-agg">${nums.map(c=>{const how=aggOf(s,c);return `<span>${esc(c.label)}${how==='sum'?'':' ('+AGG_L[how].toLowerCase()+')'}: <b>${aggTxt(c,how,aggVal(c,how,gr.rows))}</b></span>`}).join('')}</span>`:''}</div>${open?(gr.sub?`<div class="gc-sub">${walk(gr.sub)}</div>`:`<div class="gcards">${gr.rows.map(card).join('')}</div>`):''}`}).join('');
     let h=gt?`<div class="gc-groups">${walk(gt)}</div>`:`<div class="gcards">${pr.map(card).join('')}</div>`;
     const tcs=vc.filter(c=>c.total);
-    if(tcs.length)h+=`<div class="gtotal"><span>Итого по фильтру · ${rows.length}</span>${tcs.map(c=>`<span>${esc(c.label)}: <b>${fmtM(rows.reduce((a,r)=>a+(+c.val(r)||0),0))}</b></span>`).join('')}</div>`;
+    if(tcs.length)h+=`<div class="gtotal"><span>Итого по фильтру · ${rows.length}</span>${tcs.map(c=>`<span>${esc(c.label)}: <b>${fmtM(rows.reduce((a,r)=>a+(+c.val(r)||0),0),c.type!=='int')}</b></span>`).join('')}</div>`;
     return h;
   }
   function filterPop(btn,c){
