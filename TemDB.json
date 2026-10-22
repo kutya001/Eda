@@ -1,0 +1,89 @@
+{
+ "meta": {
+  "file": "TemDB.json",
+  "version": 1,
+  "description": "Пустая организация: как сразу после регистрации (только владелец и роли по шаблонам)"
+ },
+ "organization": {
+  "name": "Новая организация",
+  "inn": "",
+  "head": "",
+  "phone": "",
+  "address": "",
+  "sub": "Профиль организации",
+  "features": {
+   "requests": true,
+   "journal": false
+  },
+  "policy": {
+   "confirm": true
+  },
+  "policyHistory": [],
+  "imports": []
+ },
+ "roles": [
+  {
+   "id": "owner",
+   "name": "Владелец",
+   "perms": [],
+   "scope": {}
+  },
+  {
+   "id": "chief",
+   "name": "Руководитель отдела",
+   "perms": [
+    "clView",
+    "clEdit",
+    "clImport",
+    "clArchive",
+    "rqView",
+    "rqEdit",
+    "rqStatus",
+    "rqConfirm",
+    "jrView",
+    "stView",
+    "viewAll",
+    "export"
+   ],
+   "scope": {
+    "clients": "all",
+    "requests": "all"
+   }
+  },
+  {
+   "id": "acc",
+   "name": "Специалист",
+   "perms": [
+    "clView",
+    "clEdit",
+    "rqView",
+    "rqEdit",
+    "rqStatus",
+    "export",
+    "stView"
+   ],
+   "scope": {
+    "clients": "own",
+    "requests": "own"
+   }
+  }
+ ],
+ "employees": [
+  {
+   "id": "e1",
+   "fio": "Владелец Организации",
+   "short": "Владелец",
+   "login": "owner",
+   "role": "owner",
+   "phone": "",
+   "active": true,
+   "_cb": "e1",
+   "_ub": "e1",
+   "_ca": "2026-09-01 09:00",
+   "_ua": "2026-09-01 09:00"
+  }
+ ],
+ "clients": [],
+ "requests": [],
+ "history": []
+}
