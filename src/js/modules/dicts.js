@@ -1,8 +1,8 @@
 'use strict';
-// «Справочники»: справочники организации (смены, транспорт, районы, причины) — ведут владелец и управляющий; справочники платформы — просмотр и «Попросить добавить»; «Журнал изменений»
+// «Справочники»: справочники организации (смены, транспорт, районы, места доставки, причины) — ведут владелец и управляющий; справочники платформы — просмотр и «Попросить добавить»; «Журнал изменений»
 /* ═════════════ Справочники организации ═════════════ */
 // Где используется значение: использованное нельзя удалить, только отключить
-const OD_USED={shift:c=>MENUS.some(m=>m.shift===c)||ORDERS.some(o=>o.shift===c)||PLANS.some(p=>p.shift===c),vehicle:c=>TRIPS.some(t=>t.vehicle===c),district:c=>CUSTS.some(x=>x.points.some(p=>p.district===c)),
+const OD_USED={shift:c=>MENUS.some(m=>m.shift===c)||ORDERS.some(o=>o.shift===c)||PLANS.some(p=>p.shift===c),vehicle:c=>TRIPS.some(t=>t.vehicle===c),district:c=>CUSTS.some(x=>x.points.some(p=>p.district===c))||places().some(p=>p.district===c),place:c=>CUSTS.some(x=>x.points.some(p=>p.place===c))||ORDERS.some(o=>o.addr&&o.addr.place===c),
   cancel:c=>ORDERS.some(o=>o.cancel===c),nd:c=>ORDERS.some(o=>o.nd&&o.nd.reason===c),wo:c=>WOS.some(w=>w.reason===c)};
 const odIds=()=>Object.keys(ODICT);
 function dcTabs(){return [...odIds().map(id=>({id,label:ODICT[id].name,icon:ODICT[id].icon||'book',group:'Организации'})),{id:'platform',label:'Справочники платформы',icon:'globe',group:'Платформы'}]}
@@ -11,7 +11,9 @@ const odHist=(id,what)=>log('dict',id,what,ODICT[id]);
 function renderDicts(body,tab,fresh){if(tab==='platform')return renderPlatDicts(body);const d=ODICT[tab];if(!d){body.innerHTML='<div class="state">Нет справочников</div>';return}const ed=can('dcEdit');
   body.innerHTML=`<div class="note">${ic('info')}<span><b>${esc(d.name)}</b> — ${esc(d.what||'')}. Код присваивается автоматически и не меняется. Использованное значение нельзя удалить — только отключить: отключённое не предлагается в новых записях.${ed?'':' Ведут владелец и управляющий.'}</span></div><div id="odg"></div><div class="box"><h3>История изменений</h3>${histHtml('dict',tab)}</div>`;
   const used=x=>(OD_USED[tab]||(()=>false))(x.code);
-  grid($('#odg',body),{id:'od-'+tab,cols:[{key:'order',label:'№',type:'int',w:60,num:1,val:x=>x.order},{key:'code',label:'Код',type:'text',w:110,val:x=>x.code,cls:'mono'},{key:'name',label:'Название',type:'text',w:220,val:x=>x.name},{key:'note',label:d.noteLabel||'Пояснение',type:'text',w:260,val:x=>x.note},
+  grid($('#odg',body),{id:'od-'+tab,cols:[{key:'order',label:'№',type:'int',w:60,num:1,val:x=>x.order},{key:'code',label:'Код',type:'text',w:110,val:x=>x.code,cls:'mono'},{key:'name',label:'Название',type:'text',w:220,val:x=>x.name},
+    ...(tab==='place'?[{key:'addr',label:'Адрес',type:'text',w:200,val:x=>x.addr},{key:'district',label:'Район',type:'enum',w:140,val:x=>odName('district',x.district)},{key:'geo',label:'Геоточка',type:'text',w:150,val:x=>geoTxt(x.geo),html:x=>hasGeo(x.geo)?esc(geoTxt(x.geo)):'<span class="orange">не указана</span>'}]:[]),
+    {key:'note',label:d.noteLabel||'Пояснение',type:'text',w:260,val:x=>x.note},
     {key:'used',label:'Используется',type:'enum',w:120,val:x=>used(x)?'Да':'Нет'},{key:'active',label:'Активна',type:'enum',w:100,val:x=>x.active===false?'Нет':'Да'}],
     rows:()=>d.items,rid:x=>x.code,title:'name',sort:{key:'order',dir:1},ordered:true,audit:false,rowClass:x=>x.active===false?'muted':'',open:ed?x=>odValDlg(tab,x):null,xlsName:d.name,simulateLoad:fresh,
     actions:x=>{if(!ed)return [];const s=d.items.slice().sort((a,b)=>a.order-b.order);const i=s.indexOf(x);const mv=j=>{const y=s[j];[x.order,y.order]=[y.order,x.order];odHist(tab,`«${x.name}»: №${y.order} → №${x.order}`);refreshAll()};
@@ -21,10 +23,18 @@ function renderDicts(body,tab,fresh){if(tab==='platform')return renderPlatDicts(
     empty:{icon:'book',title:'Значений пока нет',add:ed?()=>odValDlg(tab):null}})}
 // Код — постоянный: префикс справочника и следующий номер
 const nextCode=(items,pre)=>{const p=pre||((items[0]||{}).code||'ЗН-000').split('-')[0];const n=Math.max(0,...items.map(i=>+String(i.code).split('-')[1]||0))+1;return p+'-'+String(n).padStart(3,'0')};
-const OD_PRE={shift:'СМ',vehicle:'ТР',district:'РН',cancel:'ПО',nd:'ПН',wo:'ПС'};
-function odValDlg(id,x){const d=ODICT[id];const isNew=!x;openModal({form:true,noMax:true,render:()=>({title:isNew?'Новое значение':'Изменить значение',sub:esc(d.name),body:`<div class="form">${fld('Название',inp('ov-n',x?x.name:''),{req:true,full:true,id:'ov-n'})}${fld('Код',inp('ov-c',x?x.code:nextCode(d.items,OD_PRE[id]),'class="inp mono" readonly'),{id:'ov-c',hint:'Присваивается автоматически и не меняется'})}${fld(d.noteLabel||'Пояснение',inp('ov-o',x?x.note:''),{full:true,id:'ov-o'})}</div>`,
-  foot:`<button class="btn ghost" data-close>Отмена</button><button class="btn cta" id="ov-ok">${isNew?'Добавить':'Сохранить'}</button>`,mount(el,m){$('#ov-ok',el).onclick=()=>{const n=val(el,'ov-n');if(!setErr(el,'ov-n',!n?'Укажите название':d.items.some(i=>i!==x&&i.name.toLowerCase()===n.toLowerCase())?'Такое значение уже есть':''))return;
-    if(isNew){d.items.push({code:val(el,'ov-c'),name:n,note:val(el,'ov-o'),active:true,order:Math.max(0,...d.items.map(i=>i.order))+1});odHist(id,`Добавлено «${n}»`)}else{if(x.name!==n)odHist(id,`Переименовано: «${x.name}» → «${n}»`);if(x.note!==val(el,'ov-o'))odHist(id,`«${n}»: ${d.noteLabel||'пояснение'} ${x.note||'—'} → ${val(el,'ov-o')||'—'}`);x.name=n;x.note=val(el,'ov-o')}m.close();refreshAll();toast('Сохранено')}}})})}
+const OD_PRE={shift:'СМ',vehicle:'ТР',district:'РН',place:'МД',cancel:'ПО',nd:'ПН',wo:'ПС'};
+// «Места доставки»: ещё «Адрес», «Район» и «Геоточка» — их получают точки, привязанные к месту
+function odValDlg(id,x){const d=ODICT[id];const isNew=!x;const pl=id==='place';const st={geo:x&&hasGeo(x.geo)?x.geo.slice():null};openModal({form:true,noMax:true,render:m=>({title:isNew?'Новое значение':'Изменить значение',sub:esc(d.name),body:`<div class="form">${fld('Название',inp('ov-n',val(m.el,'ov-n')||(x?x.name:''),pl?'placeholder="Например, БЦ «Аврора»"':''),{req:true,full:true,id:'ov-n'})}${fld('Код',inp('ov-c',x?x.code:nextCode(d.items,OD_PRE[id]),'class="inp mono" readonly'),{id:'ov-c',hint:'Присваивается автоматически и не меняется'})}
+    ${pl?fld('Адрес',inp('ov-a',val(m.el,'ov-a')||(x?x.addr||'':'')),{req:true,full:true,id:'ov-a'})+fld('Район',sel('ov-d',[['','—'],...odOpts('district',x&&x.district)],val(m.el,'ov-d')||(x?x.district||'':'')),{id:'ov-d'})+fld('Геоточка',`<button type="button" class="btn" id="ov-g">${ic('pin','sm')}${st.geo?esc(geoTxt(st.geo)):'Указать на карте'}</button>`,{id:'ov-gf'}):''}
+    ${fld(d.noteLabel||'Пояснение',inp('ov-o',val(m.el,'ov-o')||(x?x.note:''),pl?'placeholder="Вход, охрана, парковка"':''),{full:true,id:'ov-o'})}</div>`,
+  foot:`<button class="btn ghost" data-close>Отмена</button><button class="btn cta" id="ov-ok">${isNew?'Добавить':'Сохранить'}</button>`,mount(el,m){
+    if($('#ov-g',el))$('#ov-g',el).onclick=()=>mapPickDlg({title:'Геоточка места',sub:esc(val(el,'ov-n')||''),geo:st.geo,near:distGeo(val(el,'ov-d'))},g=>{st.geo=g;m.draw()});
+    $('#ov-ok',el).onclick=()=>{const n=val(el,'ov-n');let ok=setErr(el,'ov-n',!n?'Укажите название':d.items.some(i=>i!==x&&i.name.toLowerCase()===n.toLowerCase())?'Такое значение уже есть':'');if(pl)ok=setErr(el,'ov-a',val(el,'ov-a')?'':'Укажите адрес')&&ok;if(!ok)return;
+    const ex=pl?{addr:val(el,'ov-a'),district:val(el,'ov-d'),geo:st.geo||''}:{};
+    if(isNew){d.items.push({code:val(el,'ov-c'),name:n,note:val(el,'ov-o'),active:true,order:Math.max(0,...d.items.map(i=>i.order))+1,...ex});odHist(id,`Добавлено «${n}»`)}else{if(x.name!==n)odHist(id,`Переименовано: «${x.name}» → «${n}»`);if(x.note!==val(el,'ov-o'))odHist(id,`«${n}»: ${d.noteLabel||'пояснение'} ${x.note||'—'} → ${val(el,'ov-o')||'—'}`);
+      if(pl){if(x.addr!==ex.addr)odHist(id,`«${n}»: адрес ${x.addr||'—'} → ${ex.addr}`);if((x.district||'')!==ex.district)odHist(id,`«${n}»: район ${odName('district',x.district)||'—'} → ${odName('district',ex.district)||'—'}`);if(geoTxt(x.geo)!==geoTxt(ex.geo))odHist(id,`«${n}»: геоточка ${geoTxt(x.geo)||'—'} → ${geoTxt(ex.geo)||'—'}`);Object.assign(x,ex)}
+      x.name=n;x.note=val(el,'ov-o')}m.close();refreshAll();toast('Сохранено')}}})})}
 /* ═════════════ Справочники платформы (просмотр) ═════════════ */
 // Группы и пояснения — из refDB.json: dictionaryGroups=[{name, items:[id]}], у справочника what («что это») и where («где используется»)
 function renderPlatDicts(body){const G=REF.dictionaryGroups||[{name:'Справочники',items:Object.keys(DICT)}];

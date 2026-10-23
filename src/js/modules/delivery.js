@@ -1,12 +1,12 @@
 'use strict';
-// Модули «Доставка» и «Маршрут»: рейсы «Формируется → Загружен → В пути → Завершён», распределение заказов, порядок объезда, погрузка, маршрут курьера без сети, сдача наличных, возврат тары
+// Модули «Доставка» и «Маршрут»: рейсы «Формируется → Загружен → В пути → Завершён», распределение заказов по месту, району и окну, карта точек, порядок объезда, погрузка, маршрут курьера списком и на карте без сети, сдача наличных, возврат тары
 /* ═════════════ Рейсы: расчёты ═════════════ */
 const tripOrders=t=>t.orders.map(id=>ORM[id]).filter(Boolean);
 const tripLive=t=>tripOrders(t).filter(o=>o.status!=='Отменён');
-const tripPoints=t=>new Set(tripLive(t).map(o=>o.cust+':'+o.point)).size;
+const tripPoints=t=>new Set(tripLive(t).map(ptKey)).size;
 const tripPortions=t=>tripLive(t).reduce((a,o)=>a+ordPortions(o),0);
-// Наличными к получению: заказы со способом оплаты «Наличные курьеру»
-const cashDue=o=>o.pay==='СО-002'&&!o.pickup?ordSum(o):0;
+// Наличными к получению: заказы со способом оплаты «Наличные курьеру» — сумма заказа минус оплаченное заранее
+const cashDue=o=>o.pay==='СО-002'&&!o.pickup?Math.max(0,Math.round((ordSum(o)-ordPrepaid(o))*100)/100):0;
 const tripCashDue=t=>Math.round(tripLive(t).reduce((a,o)=>a+cashDue(o),0)*100)/100;
 const tripGot=t=>Math.round(tripOrders(t).filter(o=>o.status==='Доставлен').reduce((a,o)=>a+(+o.cash||0),0)*100)/100;
 const tripDone=t=>tripLive(t).filter(o=>o.status==='Доставлен').length;
@@ -30,8 +30,8 @@ SC_AFTER.trip=(t,from,to,rb)=>{
 
 /* ═════════════ Модуль «Доставка» ═════════════ */
 function dlTabs(){const v=visTrips();return [{id:'today',label:'Рейсы на сегодня',icon:'calendar',count:v.filter(t=>t.date===TODAY&&t.status!=='Завершён').length||''},{id:'tomorrow',label:'Рейсы на завтра',icon:'clock',count:v.filter(t=>t.date===TOMORROW()).length||''},
-  {id:'all',label:'Все рейсы',icon:'list'},seeAll('delivery')?{id:'fleet',label:'Курьеры и транспорт',icon:'truck'}:null].filter(Boolean)}
-function dlAdd(){const d=S.tab==='tomorrow'?TOMORROW():TODAY;return [can('dlTrips')&&{label:'Рейс',icon:'truck',run:()=>tripDlg(null,{date:d})},can('dlTrips')&&{label:'Распределить заказы',icon:'send',run:()=>distributeDlg(d)}]}
+  {id:'all',label:'Все рейсы',icon:'list'},{id:'map',label:'Карта',icon:'map'},seeAll('delivery')?{id:'fleet',label:'Курьеры и транспорт',icon:'truck'}:null].filter(Boolean)}
+function dlAdd(){const d=S.tab==='tomorrow'?TOMORROW():S.tab==='map'&&S.dlm?S.dlm.date:TODAY;return [can('dlTrips')&&{label:'Рейс',icon:'truck',run:()=>tripDlg(null,{date:d})},can('dlTrips')&&{label:'Распределить заказы',icon:'send',run:()=>distributeDlg(d)}]}
 const unassigned=(date,shift)=>ORDERS.filter(o=>o.date===date&&(!shift||o.shift===shift)&&canTrip(o)&&!o.trip);
 function tripCols(){return [
   {key:'no',label:'№',type:'text',w:100,val:t=>t.no,cls:'mono'},
@@ -48,7 +48,7 @@ function tripCols(){return [
   {key:'cst',label:'Наличные',type:'enum',w:130,val:cashStatus,html:t=>cashStatus(t)?pill(cashStatus(t),CASH_C,'sm'):''},
   {key:'status',label:'Статус',type:'enum',w:190,val:t=>t.status,html:t=>scaleMini('trip',t)},
   {key:'note',label:'Комментарий',type:'text',w:200,val:t=>t.note}]}
-function renderDelivery(body,tab,fresh){if(tab==='fleet')return renderFleet(body,fresh);
+function renderDelivery(body,tab,fresh){if(tab==='fleet')return renderFleet(body,fresh);if(tab==='map')return renderDlMap(body,fresh);
   const d=tab==='tomorrow'?TOMORROW():TODAY;const v=visTrips();const ua=unassigned(d);const dt=v.filter(t=>t.date===d);const nd=visOrders().filter(o=>o.date===d&&o.status==='Не доставлен');
   const left=dt.reduce((a,t)=>a+tripLive(t).filter(o=>!['Доставлен','Не доставлен'].includes(o.status)).reduce((x,o)=>x+cashDue(o),0),0);const hands=v.filter(t=>cashStatus(t)&&cashStatus(t)!=='Принято').reduce((a,t)=>a+(t.cash?t.cash.sent:tripGot(t)),0);
   body.innerHTML=`<div class="plates">
@@ -129,14 +129,15 @@ function tripPickDlg(os,done){const ok=os.filter(canTrip);if(!ok.length){toast('
     mount(el){$('#tp-t',el).onchange=e=>{st.to=e.target.value;keepForm(el,m)};
       $('#tp-ok',el).onclick=()=>{let t=TRM[st.to];if(st.to==='new'){const c=val(el,'tp-c');if(!setErr(el,'tp-c',c?'':'Выберите курьера'))return;t=makeTrip({date,shift,courier:c,vehicle:val(el,'tp-v'),dep:val(el,'tp-d')})}
         addToTrip(t,ok);m.close();done&&done();refreshAll();toast(`В рейс ${t.no} добавлено: ${ok.length}`,'send')}}})})}
-// «Распределить заказы»: заказы на дату без рейса, сгруппированные по району или окну доставки
-function distributeDlg(date,shift){const st={by:store.get('dl.by','district'),sel:new Set(),date:date||TODAY,shift:shift||defShift()};
+// «Распределить заказы»: заказы на дату без рейса, сгруппированные по месту (бизнес-центр — одна группа, остальные адреса по одному), району или окну доставки
+function distributeDlg(date,shift){const st={by:store.get('dl.by','place'),sel:new Set(),date:date||TODAY,shift:shift||defShift()};
   openModal({size:'wide',live:true,render:m=>{const os=unassigned(st.date,st.shift);[...st.sel].forEach(id=>{if(!os.some(o=>o.id===id))st.sel.delete(id)});
-    const key=o=>st.by==='district'?odName('district',pointOf(o).district)||'Район не указан':o.time||pointOf(o).win||'Окно не указано';const G={};os.forEach(o=>(G[key(o)]=G[key(o)]||[]).push(o));
+    const key=o=>st.by==='place'?ptLabel(o):st.by==='district'?odName('district',pointOf(o).district)||'Район не указан':o.time||pointOf(o).win||'Окно не указано';const G={};os.forEach(o=>(G[key(o)]=G[key(o)]||[]).push(o));
+    const gl=Object.entries(G).sort((a,b)=>st.by==='place'?b[1].reduce((x,o)=>x+ordPortions(o),0)-a[1].reduce((x,o)=>x+ordPortions(o),0)||COLL.compare(a[0],b[0]):COLL.compare(a[0],b[0]));
     const selP=os.filter(o=>st.sel.has(o.id)).reduce((a,o)=>a+ordPortions(o),0);
-    return {title:'Распределить заказы',sub:'Заказы без рейса · '+dayLbl(st.date),body:`<div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">${inp('ds-d',st.date,'type="date" style="max-width:170px"')}${sel('ds-s',activeShifts(),st.shift,'style="max-width:140px"')}${segHtml('ds-by',[['district','По району'],['win','По окну доставки']],st.by)}</div>
-      ${os.length?Object.entries(G).sort((a,b)=>COLL.compare(a[0],b[0])).map(([g,xs])=>`<div class="box"><h3><label class="row" style="gap:8px"><input type="checkbox" data-dg="${esc(g)}" ${xs.every(o=>st.sel.has(o.id))?'checked':''}>${esc(g)}</label><span class="pill gray sm">${xs.length} ${plural(xs.length,'заказ','заказа','заказов')} · ${xs.reduce((a,o)=>a+ordPortions(o),0)} порц.</span></h3>
-        <div class="list">${xs.map(o=>{const pt=pointOf(o);return `<label class="li"><input type="checkbox" data-do="${o.id}" ${st.sel.has(o.id)?'checked':''}><div class="grow"><div class="t1">${esc(custName(o.cust))} · ${esc(pt.name)}</div><div class="t2">${esc(pt.addr||'')} · ${esc(o.time||pt.win||'')} · ${scPill('order',o.status,'sm')}</div></div><b class="tnum">${ordPortions(o)}</b></label>`}).join('')}</div></div>`).join('')
+    return {title:'Распределить заказы',sub:'Заказы без рейса · '+dayLbl(st.date),body:`<div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">${inp('ds-d',st.date,'type="date" style="max-width:170px"')}${sel('ds-s',activeShifts(),st.shift,'style="max-width:140px"')}${segHtml('ds-by',[['place','По месту'],['district','По району'],['win','По окну доставки']],st.by)}</div>
+      ${os.length?gl.map(([g,xs])=>`<div class="box"><h3><label class="row" style="gap:8px"><input type="checkbox" data-dg="${esc(g)}" ${xs.every(o=>st.sel.has(o.id))?'checked':''}>${esc(g)}</label><span class="pill gray sm">${xs.length} ${plural(xs.length,'заказ','заказа','заказов')} · ${xs.reduce((a,o)=>a+ordPortions(o),0)} порц.</span></h3>
+        <div class="list">${xs.map(o=>{const pt=pointOf(o);return `<label class="li"><input type="checkbox" data-do="${o.id}" ${st.sel.has(o.id)?'checked':''}><div class="grow"><div class="t1">${esc(custName(o.cust))} · ${esc(pt.mark&&placeOf(pt.place)?pt.mark:pt.name)}</div><div class="t2">${esc(pt.addr||'')} · ${esc(o.time||pt.win||'')} · ${scPill('order',o.status,'sm')}</div></div><b class="tnum">${ordPortions(o)}</b></label>`}).join('')}</div></div>`).join('')
         :`<div class="state">${ic('check','lg')}<b>Все заказы на эту дату уже в рейсах</b><span>Без рейса остаются только заказы «Новый» (их сначала принимают) и самовывоз.</span></div>`}`,
       foot:`<button class="btn ghost" data-close>Закрыть</button><span class="grow"></span><span class="faint">Выбрано ${st.sel.size} · ${selP} порц.</span><button class="btn cta" id="ds-go" ${st.sel.size?'':'disabled'}>${ic('send','sm')}Добавить в рейс</button>`,
       mount(el){$('#ds-d',el).onchange=e=>{st.date=e.target.value;st.sel.clear();m.draw()};$('#ds-s',el).onchange=e=>{st.shift=e.target.value;st.sel.clear();m.draw()};bindSeg(el,'ds-by',v=>{st.by=v;store.set('dl.by',v);m.draw()});
@@ -162,6 +163,51 @@ function renderFleet(body,fresh){const td=TRIPS.filter(t=>t.date===TODAY);
     rows:()=>(ODICT.vehicle?ODICT.vehicle.items:[]).filter(x=>x.active!==false),rid:v=>v.code,title:'name',noun:['машина','машины','машин'],audit:false,exportable:false,sort:{key:'name',dir:1},ordered:true,firstRun:false});
   if($('#fl-dc',body))$('#fl-dc',body).onclick=()=>go('dicts','vehicle')}
 
+/* ═════════════ Доставка → «Карта» ═════════════ */
+// Заказы на дату и смену на карте точек: адреса одного места — один маркер; цвет по статусу заказа или по рейсу; панель места с «Добавить в рейс»
+const TRIP_COL=['blue','purple','orange','green','#0e9aa7','#c2185b','#7a5c2e','yellow'];
+const SC_ORD=['Новый','Принят','Готовится','Готов','В пути','Доставлен'];
+const ordCol=s=>((SC('order').colors||{})[s]||['gray'])[0];
+// Группы точек: место из справочника — одна группа, остальные адреса по одному
+function ptGroups(os){const G=new Map();os.forEach(o=>{const k=ptKey(o);if(!G.has(k)){const pt=pointOf(o);const pl=placeOf(pt.place);G.set(k,{key:k,label:ptLabel(o),addr:pl?pl.addr:pt.addr,place:pl||null,geo:ptGeo(pt),approx:!pl&&!!pt.approx,orders:[],n:0})}const g=G.get(k);g.orders.push(o);g.n+=ordPortions(o)});return [...G.values()].sort((a,b)=>b.n-a.n||COLL.compare(a.label,b.label))}
+// Цвет группы по статусу: «Не доставлен» — красный, иначе наименее продвинутый шаг среди недоставленных заказов
+const grpStatus=g=>{if(g.orders.some(o=>o.status==='Не доставлен'))return 'Не доставлен';const xs=g.orders.filter(o=>o.status!=='Доставлен');return xs.length?xs.map(o=>o.status).sort((a,b)=>SC_ORD.indexOf(a)-SC_ORD.indexOf(b))[0]:'Доставлен'};
+const hubCount=gs=>gs.filter(g=>g.place&&g.orders.length>=2).length;
+function renderDlMap(body,fresh){const st=S.dlm=S.dlm||{date:TODAY,show:'all',color:'status',sel:''};st.shift=activeShifts().some(([c])=>c===st.shift)?st.shift:defShift();
+  const all=visOrders().filter(o=>o.date===st.date&&o.shift===st.shift&&!o.pickup&&o.status!=='Отменён');
+  const os=all.filter(o=>st.show==='none'?!o.trip&&!['Доставлен','Не доставлен'].includes(o.status):st.show==='way'?o.status==='В пути':st.show==='nd'?o.status==='Не доставлен':true);
+  const gs=ptGroups(os);const geo=gs.filter(g=>g.geo),nog=gs.filter(g=>!g.geo);const ts=TRIPS.filter(t=>t.date===st.date&&t.shift===st.shift&&tripLive(t).length);const tcol=t=>TRIP_COL[ts.indexOf(t)%TRIP_COL.length];
+  const gcol=g=>{if(st.color==='status')return ordCol(grpStatus(g));const cnt={};g.orders.forEach(o=>{if(o.trip)cnt[o.trip]=(cnt[o.trip]||0)+1});const k=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0];return k&&TRM[k]?tcol(TRM[k]):'gray'};
+  const dk=st.date===TODAY?'t':st.date===TOMORROW()?'m':'o';const sh=activeShifts();
+  const legend=st.color==='status'?[...new Set(gs.map(grpStatus))].sort((a,b)=>SC_ORD.indexOf(a)-SC_ORD.indexOf(b)).map(s=>[ordCol(s),s]):[...ts.map(t=>[tcol(t),tripLbl(t)]),['gray','Без рейса']];
+  body.innerHTML=`<div class="row dm-bar">${segHtml('dm-day',[['t','Сегодня'],['m','Завтра'],['o','Дата']],dk)}${dk==='o'?inp('dm-date',st.date,'type="date" style="max-width:160px" aria-label="Дата"'):''}${sh.length>1?sel('dm-sh',sh,st.shift,'style="max-width:140px" aria-label="Смена"'):''}
+      <span class="dm-lbl">Показать</span>${segHtml('dm-show',[['all','Все'],['none','Без рейса'],['way','В пути'],['nd','Не доставлено']],st.show)}<span class="dm-lbl">Цвет</span>${segHtml('dm-col',[['status','По статусу'],['trip','По рейсу']],st.color)}</div>
+    <div class="plates">${plate({id:'pts',icon:'pin',color:'blue',label:'Точек на карте',value:geo.length,sub:`${os.length} ${plural(os.length,'заказ','заказа','заказов')}`})}${plate({id:'por',icon:'list',color:'purple',label:'Порций',value:os.reduce((a,o)=>a+ordPortions(o),0)})}
+      ${plate({id:'hub',icon:'building',color:'orange',label:'Мест скопления',value:hubCount(gs),sub:'два и больше заказов в одном месте'})}${plate({id:'nog',icon:'alert',color:nog.length?'red':'green',label:'Без геоточки',value:nog.length,sub:nog.length?'не видны на карте':'все на карте'})}</div>
+    <div class="dm-wrap"><div id="dm-map"></div><div class="dm-side"><div id="dm-pan"></div><div class="box dm-list"><h3>Места по порциям</h3>${gs.length?`<div class="list">${geo.map(g=>`<button type="button" class="li" data-g="${esc(g.key)}"><span class="pl-dot" style="background:${mapCol(gcol(g))};color:#fff">${ic(g.place?'building':'pin','sm')}</span><span class="grow"><span class="t1">${esc(g.label)}</span><span class="t2">${g.orders.length} ${plural(g.orders.length,'заказ','заказа','заказов')}${g.approx?' · примерная геоточка':''}</span></span><b class="tnum">${g.n}</b></button>`).join('')}</div>`:`<div class="muted">На ${dayLbl(st.date)} заказов с доставкой нет.</div>`}
+      ${nog.length?`<div class="dm-nog"><b>${ic('alert','sm')} Без геоточки: ${nog.length}</b>${nog.map(g=>`<div class="li"><span class="grow"><span class="t1">${esc(g.label)}</span><span class="t2">${esc(g.addr||'')} · ${g.n} порц.</span></span>${can('cuEdit')||can('ordEdit')?`<button type="button" class="btn sm" data-nogeo="${esc(g.key)}">${ic('pin','sm')}Указать на карте</button>`:''}</div>`).join('')}</div>`:''}</div></div></div>`;
+  const mp=mapView($('#dm-map',body),{key:'dlmap',kitchen:ORG.geo,legend:[...legend,['#999','Пунктир — примерная геоточка']],
+    points:geo.map(g=>({id:g.key,geo:g.geo,n:g.n,label:g.label,title:`${g.label}: ${g.n} порц., ${g.orders.length} ${plural(g.orders.length,'заказ','заказа','заказов')}`,color:gcol(g),approx:g.approx,sel:g.key===st.sel,big:!!g.place})),
+    lines:st.color==='trip'?ts.map(t=>({color:tcol(t),geo:[ORG.geo,...tripLive(t).map(o=>ptGeo(pointOf(o))).filter(Boolean)].filter(hasGeo)})):[],
+    onPick:p=>{st.sel=p.id;panel()}});
+  const panel=()=>{const g=gs.find(x=>x.key===st.sel);const host=$('#dm-pan',body);$$('.dm-list [data-g]',body).forEach(b=>b.classList.toggle('on',b.dataset.g===st.sel));if(!g){host.innerHTML='';return}const free=g.orders.filter(o=>!o.trip&&canTrip(o));
+    host.innerHTML=`<div class="box dm-pan"><div class="row" style="align-items:flex-start;gap:8px"><div class="grow"><h3 style="margin:0">${ic(g.place?'building':'pin','sm')} ${esc(g.label)}</h3><div class="faint">${esc(g.addr||'')}${g.place&&g.place.note?' · '+esc(g.place.note):''}</div></div><button type="button" class="icon-btn sm" id="dm-x" aria-label="Закрыть панель">${ic('x','sm')}</button></div>
+      <div class="rt-sum"><span>Порций <b>${g.n}</b></span><span>Заказов <b>${g.orders.length}</b></span>${free.length?`<span>Без рейса <b>${free.length}</b></span>`:''}</div>
+      <div class="list">${g.orders.map(o=>{const pt=pointOf(o);const t=TRM[o.trip];return `<button type="button" class="li" data-oo="${o.id}"><span class="grow"><span class="t1">${esc(custName(o.cust))}${pt.mark?' · '+esc(pt.mark):''}</span><span class="t2">${esc(o.no)} · ${ordPortions(o)} порц.${o.time?' · '+esc(o.time):''} · ${t?esc(t.no+' · '+empName(t.courier)):'без рейса'}</span><span class="t2">${scPill('order',o.status,'sm')} ${canPrice()?payPill(o):''}</span></span>${ic('right','sm')}</button>`}).join('')}</div>
+      ${free.length&&can('dlTrips')?`<button class="btn cta" id="dm-add">${ic('send','sm')}Добавить в рейс (${free.length})</button>`:''}</div>`;
+    $('#dm-x',host).onclick=()=>{st.sel='';panel();mp.draw()};$$('[data-oo]',host).forEach(b=>b.onclick=()=>openOrder(ORM[b.dataset.oo]));const a=$('#dm-add',host);if(a)a.onclick=()=>tripPickDlg(free);
+    if(isMobile())host.scrollIntoView({block:'nearest',behavior:'smooth'})};
+  panel();
+  $$('.dm-list [data-g]',body).forEach(b=>b.onclick=()=>{const g=gs.find(x=>x.key===b.dataset.g);st.sel=g.key;mp.focus(g.geo);panel();if(isMobile())$('#dm-map',body).scrollIntoView({block:'start',behavior:'smooth'})});
+  $$('[data-nogeo]',body).forEach(b=>b.onclick=()=>{const g=nog.find(x=>x.key===b.dataset.nogeo);setGeoDlg(g.orders[0])});
+  body.querySelector('.plates').onclick=e=>{const b=e.target.closest('[data-plate]');if(!b)return;if(b.dataset.plate==='nog'){const n=$('.dm-nog',body);n&&n.scrollIntoView({block:'center',behavior:'smooth'})}else if(b.dataset.plate==='pts')mp.fit()};
+  bindSeg(body,'dm-day',v=>{if(v==='t')st.date=TODAY;else if(v==='m')st.date=TOMORROW();else st.date=st.date===TODAY||st.date===TOMORROW()?addDays(TODAY,2):st.date;st.sel='';renderPage()});
+  const dd=$('#dm-date',body);if(dd)dd.onchange=()=>{st.date=dd.value||TODAY;st.sel='';renderPage()};const ds=$('#dm-sh',body);if(ds)ds.onchange=()=>{st.shift=ds.value;st.sel='';renderPage()};
+  bindSeg(body,'dm-show',v=>{st.show=v;st.sel='';renderPage()});bindSeg(body,'dm-col',v=>{st.color=v;renderPage()})}
+// «Указать на карте» для адреса заказа: геоточка сохраняется в точке доставки заказчика или в адресе, введённом в заказе
+function setGeoDlg(o){const pt=pointOf(o);const c=CUM[o.cust];mapPickDlg({title:'Геоточка адреса',sub:esc(ptLabel(o))+' · '+esc(pt.addr||''),geo:pt.geo,near:distGeo(pt.district)},g=>{
+  if(o.addr){o.addr.geo=g;o.addr.approx=false;log('order',o.id,'Геоточка адреса уточнена на карте',o)}else{const p=c&&c.points.find(x=>x.id===o.point);if(p){p.geo=g;p.approx=false;log('customer',c.id,`Геоточка адреса «${p.addr}» уточнена на карте`,c)}}refreshAll();toast('Геоточка сохранена','pin')})}
+
 /* ═════════════ Модуль «Маршрут» (телефон курьера) ═════════════ */
 // Рейсы на сегодня: курьеру — свои; владельцу — все, с выбором рейса
 const routeTrips=()=>TRIPS.filter(t=>t.date===TODAY&&(t.courier===S.me||isOwner())).sort((a,b)=>(a.dep||'')<(b.dep||'')?-1:1);
@@ -176,20 +222,27 @@ function renderRoute(body){const ts=routeTrips();const tm=TRIPS.filter(t=>t.date
     ${offlineSw(pend)}
     ${t.status==='Формируется'?`<div class="note">${ic('clock')}<span>Рейс ещё формируется: состав может измениться. Начать рейс можно после погрузки.</span></div>`:''}
     ${t.status==='Загружен'&&(t.courier===S.me||isOwner())?`<button class="btn cta big-btn" id="rt-go" ${S.offline?'disabled':''}>${ic('truck')}Начать рейс</button>${S.offline?'<div class="hint">Начать рейс можно при подключении к сети</div>':''}`:''}
-    <div class="rt-list">${os.map((o,i)=>stopHtml(o,i,t)).join('')}</div>
+    <div class="row">${segHtml('rt-v',[['list','Список'],['map','Карта']],S.rview||'list')}</div>
+    ${S.rview==='map'?`<div id="rt-map"></div>${routeStops(os).some(x=>!x.geo)?`<div class="note warn">${ic('alert')}<span>Без геоточки (нет на карте): ${routeStops(os).filter(x=>!x.geo).map(x=>x.is.join(', ')+'. '+esc(ptLabel(x.os[0]))).join('; ')}</span></div>`:''}`:`<div class="rt-list">${os.map((o,i)=>stopHtml(o,i,t)).join('')}</div>`}
     ${t.courier===S.me&&cashStatus(t)==='Не сдано'&&t.status==='Завершён'?`<button class="btn cta big-btn" id="rt-cash">${ic('wallet')}Сдать наличные · ${money(tripGot(t))}</button>`:t.cash?`<div class="note">${ic('wallet')}<span>Наличные: ${pill(t.cash.status,CASH_C,'sm')} сдано ${money(t.cash.sent)} ${fmtDT(t.cash.at)}</span></div>`:''}`;
-  bindSeg(body,'rt-t',v=>{S.rtrip=v;renderPage()});bindOffline(body);
+  bindSeg(body,'rt-t',v=>{S.rtrip=v;renderPage()});bindSeg(body,'rt-v',v=>{S.rview=v;renderPage()});bindOffline(body);
+  if($('#rt-map',body)){const sts=routeStops(os);const fin=o=>['Доставлен','Не доставлен'].includes(o.status);
+    mapView($('#rt-map',body),{key:'route-'+t.id,kitchen:ORG.geo,noCluster:true,legend:[['blue','Порядок объезда'],['green','Доставлено'],['red','Не доставлено']],lines:[{color:'blue',geo:[ORG.geo,...sts.map(x=>x.geo)].filter(hasGeo)}],
+      points:sts.filter(x=>x.geo).map(x=>({id:x.id,geo:x.geo,n:x.os.reduce((a,o)=>a+ordPortions(o),0),num:x.is.length>1?x.is[0]+'–'+x.is[x.is.length-1]:x.is[0],done:x.os.every(fin),color:x.os.some(o=>o.status==='Не доставлен')?'red':x.os.every(fin)?'green':'blue',label:ptLabel(x.os[0]),title:x.is.join(', ')+'. '+ptLabel(x.os[0]),approx:x.approx,big:true})),
+      onPick:(p,el)=>{const x=sts.find(y=>y.id===p.id);if(!x)return;if(x.os.length===1)openStop(x.os[0]);else menu(el,x.os.map((o,i)=>({label:`${x.is[i]}. ${custName(o.cust)}`,sub:pointOf(o).mark||'',icon:fin(o)?'check':'right',run:()=>openStop(o)})))}})}
   const on=(id,f)=>{const x=$(id,body);if(x)x.onclick=f};on('#rt-open',()=>openTrip(t));on('#rt-go',()=>stepTo('trip',t,'В пути'));on('#rt-cash',()=>cashDlg(t));
   $$('[data-stop]',body).forEach(b=>b.onclick=e=>{if(e.target.closest('[data-dv],[data-nd],a'))return;openStop(ORM[b.dataset.stop])});
   $$('[data-dv]',body).forEach(b=>b.onclick=()=>stepTo('order',ORM[b.dataset.dv],'Доставлен'));$$('[data-nd]',body).forEach(b=>b.onclick=()=>ndDlg(ORM[b.dataset.nd]))}
+// Остановки на карте маршрута: подряд идущие заказы одного места — один пронумерованный маркер
+function routeStops(os){const out=[];os.forEach((o,i)=>{const k=ptKey(o);const l=out[out.length-1];if(l&&l.k===k){l.os.push(o);l.is.push(i+1);return}const pt=pointOf(o);out.push({id:k+'#'+(i+1),k,os:[o],is:[i+1],geo:ptGeo(pt),approx:!placeOf(pt.place)&&!!pt.approx})});return out}
 function stopHtml(o,i,t){const pt=pointOf(o);const act=o.status==='В пути'&&!o.pending&&(t.courier===S.me||isOwner());const done=['Доставлен','Не доставлен'].includes(o.status);
   return `<div class="rt-stop ${done?'done':''} ${o.status==='Не доставлен'?'bad':''}" data-stop="${o.id}" role="button" tabindex="0"><span class="rt-n">${done?ic(o.status==='Доставлен'?'check':'x','sm'):i+1}</span><div class="grow">
-    <div class="t1">${esc(custName(o.cust))}</div><div class="t2"><b>${esc(pt.name)}</b> · ${esc(pt.addr||'')}</div>${pt.mark?`<div class="t2">${ic('pin','sm')}${esc(pt.mark)}</div>`:''}
-    <div class="rt-meta"><span>${ic('clock','sm')}${esc(o.time||pt.win||'—')}</span><span><b>${ordPortions(o)}</b> порц.</span>${cashDue(o)?`<span class="rt-cash">${ic('wallet','sm')}${money(cashDue(o))}</span>`:''}${o.pending?`<span class="pill yellow sm">${ic('clock')}Ждёт отправки: «${esc(o.pending.to)}»</span>`:scPill('order',o.status,'sm')}</div>
+    <div class="t1">${esc(custName(o.cust))}</div><div class="t2">${pt.name&&pt.name!==pt.addr?`<b>${esc(pt.name)}</b> · `:''}${esc(pt.addr||'')}</div>${pt.mark?`<div class="t2">${ic('pin','sm')}${esc(pt.mark)}</div>`:''}
+    <div class="rt-meta"><span>${ic('clock','sm')}${esc(o.time||pt.win||'—')}</span><span><b>${ordPortions(o)}</b> порц.</span>${cashDue(o)?`<span class="rt-cash">${ic('wallet','sm')}${money(cashDue(o))}</span>`:''}${payStatus(o)==='Оплачен'?pill('Оплачено',{'Оплачено':['green','check']},'sm'):''}${o.pending?`<span class="pill yellow sm">${ic('clock')}Ждёт отправки: «${esc(o.pending.to)}»</span>`:scPill('order',o.status,'sm')}</div>
     ${act?`<div class="rt-acts"><button class="btn danger" data-nd="${o.id}">Не доставлено</button><button class="btn cta" data-dv="${o.id}">${ic('check','sm')}Доставлено</button></div>`:''}</div></div>`}
 // Карточка точки: позвонить, открыть в картах, состав без цен, «Доставлено» / «Не доставлено»
 function openStop(o){if(!o)return;openModal({size:'mid',live:true,render:m=>{const pt=pointOf(o);const t=TRM[o.trip];const act=o.status==='В пути'&&!o.pending&&t&&(t.courier===S.me||isOwner());const q=encodeURIComponent('Бишкек, '+(pt.addr||''));const mn=menuOf(o.date,o.shift);
-  return {title:esc(custName(o.cust)),sub:esc(pt.name)+' · '+esc(o.no),body:`<div class="box"><div class="kv">${kv('Адрес',esc(pt.addr))}${kv('Ориентир',esc(pt.mark))}${kv('Окно доставки',esc(o.time||pt.win))}${kv('Контакт на месте',esc(pt.contact))}${kv('Статус',o.pending?`<span class="pill yellow sm">Ждёт отправки: «${esc(o.pending.to)}»</span>`:scPill('order',o.status,'sm'))}${cashDue(o)?kv('Получить наличными',`<b>${money(cashDue(o))}</b>`):''}${kv('Комментарий',esc(o.note),1)}</div>
+  return {title:esc(custName(o.cust)),sub:esc(pt.name)+' · '+esc(o.no),body:`<div class="box"><div class="kv">${kv('Адрес',esc(pt.addr))}${kv('Ориентир',esc(pt.mark))}${kv('Окно доставки',esc(o.time||pt.win))}${kv('Контакт на месте',esc(pt.contact))}${kv('Статус',o.pending?`<span class="pill yellow sm">Ждёт отправки: «${esc(o.pending.to)}»</span>`:scPill('order',o.status,'sm'))}${cashDue(o)?kv('Получить наличными',`<b>${money(cashDue(o))}</b>`+(ordPrepaid(o)>0.009?`<div class="faint">оплачено заранее ${money(ordPrepaid(o))}</div>`:'')):''}${payStatus(o)==='Оплачен'?kv('Оплата',pill('Оплачено',{'Оплачено':['green','check']},'sm')):''}${kv('Комментарий',esc(o.note),1)}</div>
     <div class="rt-links">${pt.phone?`<a class="btn" href="tel:${esc(pt.phone.replace(/\s/g,''))}">${ic('phone','sm')}Позвонить</a>`:''}<a class="btn" href="https://2gis.kg/bishkek/search/${q}" target="_blank" rel="noopener">${ic('pin','sm')}Открыть в 2ГИС</a><a class="btn" href="https://www.google.com/maps/search/?api=1&query=${q}" target="_blank" rel="noopener">${ic('globe','sm')}Открыть в Google Картах</a></div></div>
     <div class="box"><h3>Состав заказа</h3><table class="mini"><tbody>${o.lines.map(l=>{const ex=l.kind==='c'?Object.keys(expandLine(l,mn)).map(id=>(DSM[id]||{}).name).filter(Boolean).join(', '):'';return `<tr><td><b>${esc(lineName(l))}</b>${ex?`<div class="faint">${esc(ex)}</div>`:''}</td><td class="num tnum">${l.qty}</td></tr>`}).join('')}</tbody><tfoot><tr><td>Итого порций</td><td class="num tnum">${ordPortions(o)}</td></tr></tfoot></table></div>
     ${o.deliv?`<div class="box"><div class="kv">${kv('Доставлено',fmtDT(o.deliv.at)+' · получатель '+esc(o.deliv.recv))}${o.deliv.cash?kv('Получено наличными',money(o.deliv.cash)):''}</div>${o.deliv.photo?`<img class="dl-ph" src="${o.deliv.photo}" alt="Фото доставки">`:''}</div>`:''}`,

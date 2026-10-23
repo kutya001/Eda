@@ -27,7 +27,7 @@ function openEmp(e){openModal({size:'mid',live:true,render:()=>{const cs=CUSTS.f
   foot:`<button class="btn" id="em-more">${ic('more','sm')}Действия</button><div class="grow"></div>${can('stManage')&&e.role!=='owner'&&e.id!==S.me?`<button class="btn cta" id="em-ed">${ic('edit','sm')}Изменить</button>`:'<button class="btn cta" data-close>Закрыть</button>'}`,
   mount(el){$('#em-more',el).onclick=x=>menu(x.currentTarget,empActions(e).filter(a=>a&&a.label!=='Открыть'));if($('#em-ed',el))$('#em-ed',el).onclick=()=>empDlg(e)}}}})}
 const shortOf=f=>f.split(' ').filter(Boolean).slice(0,3).map((w,i)=>i?w[0]+'.':w+' ').join('').trim();
-const phoneNorm=p=>String(p||'').replace(/[^\d+]/g,'');
+const phoneKey=p=>String(p||'').replace(/[^\d+]/g,'');
 // «Пригласить сотрудника»: SMS со ссылкой на номер; после первого входа — «Активен». Телефон — логин, он уникален в организации
 function empDlg(e){const isNew=!e;const roles=ROLES.filter(r=>!r.fixed&&(r.id!=='owner'||isOwner()));
   openModal({form:true,render:m=>({title:isNew?'Пригласить сотрудника':'Изменить сотрудника',body:`<div class="form">${fld('ФИО',inp('ef-f',e?e.fio:''),{req:true,full:true,id:'ef-f'})}
@@ -35,7 +35,7 @@ function empDlg(e){const isNew=!e;const roles=ROLES.filter(r=>!r.fixed&&(r.id!==
     ${fld('Роль',sel('ef-r',roles.map(r=>[r.id,r.name]),e?e.role:'cook'),{req:true,full:true,id:'ef-r'})}</div><div class="hint" id="ef-rh">${esc(roleHint(e?e.role:'cook'))}</div>`,
   foot:`<button class="btn ghost" data-close>Отмена</button><button class="btn cta" id="ef-ok">${isNew?ic('send','sm')+'Пригласить':'Сохранить'}</button>`,
   mount(el){$('#ef-r',el).onchange=x=>$('#ef-rh',el).textContent=roleHint(x.target.value);
-    $('#ef-ok',el).onclick=()=>{const f=val(el,'ef-f'),ph=val(el,'ef-ph');let ok=setErr(el,'ef-f',f.split(' ').filter(Boolean).length<2?'Укажите фамилию и имя':'');ok=setErr(el,'ef-ph',phoneNorm(ph).length<12?'Номер в формате +996 555 000 000':EMP.some(x=>x!==e&&phoneNorm(x.phone)===phoneNorm(ph))?'Сотрудник с таким номером уже есть':'')&&ok;if(!ok)return;
+    $('#ef-ok',el).onclick=()=>{const f=val(el,'ef-f'),ph=val(el,'ef-ph');let ok=setErr(el,'ef-f',f.split(' ').filter(Boolean).length<2?'Укажите фамилию и имя':'');ok=setErr(el,'ef-ph',phoneKey(ph).length<12?'Номер в формате +996 555 000 000':EMP.some(x=>x!==e&&phoneKey(x.phone)===phoneKey(ph))?'Сотрудник с таким номером уже есть':'')&&ok;if(!ok)return;
       const d={fio:f,short:shortOf(f),role:val(el,'ef-r'),pos:val(el,'ef-p')};
       if(isNew){const n=born({id:uid('e'),...d,phone:ph,login:ph,status:'Приглашён',active:true,cust:'',lastIn:'',mute:[]});EMP.push(n);log('emp',n.id,`Приглашён: ${roleName(d.role)}`,n);m.close();refreshAll();toast('Приглашение отправлено по SMS на '+ph,'send');return}
       const was=e.role;Object.assign(e,d);log('emp',e.id,was!==d.role?`Роль: ${roleName(was)} → ${roleName(d.role)}`:'Данные сотрудника изменены',e);m.close();refreshAll();toast('Сохранено')}}})})}
