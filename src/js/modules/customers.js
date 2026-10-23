@@ -46,6 +46,7 @@ function renderCustomers(body,tab,fresh){const gid='cu-'+tab;const all=visCusts(
     </div><div id="cug"></div>`;
     body.querySelector('.plates').onclick=e=>{const b=e.target.closest('[data-plate]');if(!b||!GS[gid])return;const s=GS[gid];s.filters={};const id=b.dataset.plate;
       if(id==='new')s.filters._ca={type:'date',from:wk,to:null};if(id==='today')s.filters.last={type:'date',from:TODAY,to:TODAY};if(id==='pdebt')s.filters.debt={type:'num',from:0.01,to:null};s.page=0;renderPage()}}
+  else if(tab!=='org')body.innerHTML='<div id="cug"></div>';
   else{const act=all.filter(CU_ROWS.org);const over=act.filter(c=>ledgers()[c.id].overdue>0),lim=act.filter(c=>limitOver(c));const debt=act.reduce((a,c)=>a+Math.max(0,debtOf(c.id)),0);
     body.innerHTML=`<div class="plates">
       ${plate({id:'act',icon:'building',color:'blue',label:'Активных заказчиков',value:act.length,sub:seeAll('customers')?'юрлица всей организации':'юрлица, закреплённые за вами'})}
@@ -54,7 +55,7 @@ function renderCustomers(body,tab,fresh){const gid='cu-'+tab;const all=visCusts(
       ${plate({id:'lim',icon:'alert',color:lim.length?'orange':'green',label:'Долг выше лимита',value:lim.length})}
     </div><div id="cug"></div>`;
     body.querySelector('.plates').onclick=e=>{const b=e.target.closest('[data-plate]');if(!b)return;const id=b.dataset.plate;const f={};
-      if(id==='over')f.over={type:'num',from:0.01,to:null};if(id==='lim')f.lim={type:'enum',vals:['Да']};if(tab!=='org')return go('customers','org',f);if(!GS[gid])return;GS[gid].filters=f;GS[gid].page=0;renderPage()}}
+      if(id==='over')f.over={type:'num',from:0.01,to:null};if(id==='lim')f.lim={type:'enum',vals:['Да']};if(!GS[gid])return;GS[gid].filters=f;GS[gid].page=0;renderPage()}}
   const mixed=tab==='pau'||tab==='arc';
   const cols=per?perCols():mixed?[...cuCols().slice(0,1),{key:'kind',label:'Вид',type:'enum',w:100,val:c=>kindName(c)},...cuCols().slice(1)]:cuCols();
   grid($('#cug',body),{id:gid,cols,show:per?['name','phone','addr','n','last','debt','status']:mixed?['name','kind','type','phone','debt','resp','status']:['name','type','phone','pts','debt','over','resp','status'],
@@ -63,13 +64,16 @@ function renderCustomers(body,tab,fresh){const gid='cu-'+tab;const all=visCusts(
     bulk:can('cuEdit')?[{label:'Назначить ответственного',icon:'user',run:(rs,done)=>cuRespDlg(rs,done)}]:null,
     empty:{icon:per?'user':'building',title:tab==='org'?'Юрлиц пока нет':per?'Физлиц пока нет':'Здесь пусто',text:per?'Физлицо появится само, когда вы примете быстрый заказ от нового клиента.':'',add:tab==='org'&&can('cuEdit')?()=>custDlg():per&&can('ordEdit')?()=>quickOrderDlg():null}})}
 function cuActions(c){const bk=scBack('customer',c);const p=isPerson(c);return [{label:'Открыть',icon:'right',run:()=>openCust(c)},
-  can('ordEdit')&&c.status==='Активен'&&(p?{label:'Быстрый заказ',icon:'zap',run:()=>quickOrderDlg({cust:c.id})}:{label:'Новый заказ',icon:'task',run:()=>orderDlg(null,{cust:c.id})}),
+  can('ordEdit')&&(p?c.status!=='В архиве'&&{label:'Быстрый заказ',icon:'zap',run:()=>quickOrderDlg({cust:c.id})}:c.status==='Активен'&&{label:'Новый заказ',icon:'task',run:()=>orderDlg(null,{cust:c.id})}),
   can('myDocs')&&{label:'Акт сверки',icon:'file',run:()=>actDlg(c.id)},
   can('cuEdit')&&{label:'Изменить',icon:'edit',run:()=>p?personDlg(c):custDlg(c)},
   canBack('customer')&&bk&&{label:`Вернуть в «${bk}»`,icon:'history',run:()=>rollbackDlg('customer',c,bk)},
   {sep:1},can('cuStatus')&&c.status==='Активен'&&{label:'Приостановить',icon:'pause',run:()=>reasonDlg(p?'Приостановить клиента?':'Приостановить заказчика?','Причина','Приостановить',w=>setStatus('customer',c,'Приостановлен',w))},
   can('cuStatus')&&c.status!=='В архиве'&&{label:'В архив',icon:'archive',danger:true,disabled:Math.abs(debtOf(c.id))>0.009,reason:Math.abs(debtOf(c.id))>0.009?`Нельзя: долг ${money(debtOf(c.id))}`:'',
     run:()=>reasonDlg('Отправить в архив?','Причина','В архив',w=>{if(c.status==='Активен')setStatus('customer',c,'Приостановлен',w,false,{silent:true});setStatus('customer',c,'В архиве',w)})}]}
+// Шкала «Обслуживание» — те же правила, что у действий строки: причина обязательна, в архив нельзя с долгом
+SC_WHY.customer=(c,to,back)=>{if(!back&&to==='В архиве'&&Math.abs(debtOf(c.id))>0.009)return `Нельзя: долг ${money(debtOf(c.id))}`};
+SC_HOOK.customer=(c,to,done)=>{const arc=to==='В архиве';reasonDlg(arc?'Отправить в архив?':isPerson(c)?'Приостановить клиента?':'Приостановить заказчика?','Причина',arc?'В архив':'Приостановить',w=>{setStatus('customer',c,to,w);done&&done()});return true};
 // Причина обязательна: приостановка, отмена, недоставка, откат
 function reasonDlg(title,label,ok,run,opts){openModal({form:true,noMax:true,render:()=>({title,body:`<div class="form">${opts?fld(label,sel('rs-o',opts),{req:true,full:true,id:'rs-o'})+fld('Комментарий','<textarea class="inp" id="rs-w" rows="2"></textarea>',{full:true,id:'rs-w'}):fld(label,'<textarea class="inp" id="rs-w" rows="3"></textarea>',{req:true,full:true,id:'rs-w'})}</div>`,
   foot:`<button class="btn ghost" data-close>Назад</button><button class="btn danger" id="rs-ok">${esc(ok)}</button>`,
@@ -131,7 +135,7 @@ function openPerson(c){let tab='main';
       <div class="row">${can('myPay')?`<button class="btn" id="cu-pay">${ic('plus','sm')}Оплата</button>`:''}${can('myDocs')?`<button class="btn" id="cu-act">${ic('file','sm')}Акт сверки</button>`:''}</div>
       <div class="box"><h3>Оплаты</h3>${ps.length?`<div class="list">${ps.map(p=>`<button type="button" class="li clk" data-pay="${p.id}">${p.file?`<img class="rcpt" src="${p.file}" alt="Чек оплаты">`:`<span class="pl-dot gray">${ic('coins')}</span>`}<span class="grow"><span class="t1">${money(p.sum)} · ${esc(dictName('payMethod',p.method))}${p.status!=='Проведена'?' <span class="pill gray sm">отменена</span>':''}</span><span class="t2">${fmtD(p.date)} · ${esc(p.no)}${p.order&&ORM[p.order]?' · заказ '+esc(ORM[p.order].no):''}${p.cour?' · получено курьером':''}${p.file?' · есть чек':''}</span></span></button>`).join('')}</div>`:'<div class="muted">Оплат пока нет.</div>'}</div>`;
     if(tab==='hist')body+=histBlock('customer','customer',c);
-    const qo=can('ordEdit')&&c.status==='Активен';
+    const qo=can('ordEdit')&&c.status!=='В архиве';
     return {title:esc(c.name),sub:'Физлицо · '+esc(c.phone),body,
       foot:`<button class="btn" id="cu-more">${ic('more','sm')}Действия</button><div class="grow"></div><a class="btn" href="tel:${esc(phoneDigits(c.phone))}">${ic('phone','sm')}Позвонить</a>${qo?`<button class="btn cta" id="cu-qo">${ic('zap','sm')}Быстрый заказ</button>`:''}`,
       mount(el){bindCardTabs(el,'ct',t=>{tab=t;m.draw()});bindScale(el,'customer',c);
@@ -231,7 +235,7 @@ function cuImportDlg(){const by=(id,v)=>DICT[id].items.find(x=>x.active!==false&
   importDlg({title:'Загрузка юрлиц из Excel',file:'Шаблон заказчиков',key:'inn',log:ORG.imports,
     cols:[{key:'name',label:'Наименование',req:true},{key:'inn',label:'ИНН',req:true,hint:'14 цифр',parse:v=>v.replace(/\s/g,''),check:v=>/^\d{14}$/.test(v)?'':'нужно 14 цифр'},
       {key:'type',label:'Тип',hint:'Одно из: '+DICT.custType.items.map(x=>x.name).join(', '),parse:v=>{const x=by('custType',v);return x?x.code:'?'+v},check:v=>v[0]==='?'?`нет в справочнике «${v.slice(1)}»`:''},
-      {key:'phone',label:'Телефон',req:true,hint:'+996 …'},{key:'contact',label:'Контактное лицо'},
+      {key:'phone',label:'Телефон',req:true,hint:'+996 …',parse:v=>phoneNorm(v)||v,check:v=>phoneNorm(v)?'':'номер: 9 цифр после +996'},{key:'contact',label:'Контактное лицо'},
       {key:'pay',label:'Способ оплаты',hint:'Одно из: '+DICT.payMethod.items.map(x=>x.name).join(', '),parse:v=>{const x=by('payMethod',v);return x?x.code:'?'+v},check:v=>v[0]==='?'?`нет в справочнике «${v.slice(1)}»`:''},
       {key:'addr',label:'Адрес доставки',req:true,hint:'Адрес первой точки доставки'}],
     example:[{name:'ОсОО «Пример»',inn:'01203201910123',type:'Компания',phone:'+996 555 000 001',contact:'Иванов Иван',pay:'Безналичный перевод',addr:'Бишкек, ул. Примерная, 1'}],

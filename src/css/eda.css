@@ -236,6 +236,7 @@ button.li:focus-visible{outline:2px solid var(--b-blue);outline-offset:-2px}
 label.chk{display:flex;align-items:center;gap:10px;font-size:13.5px;cursor:pointer;min-height:40px}
 label.chk input{width:18px;height:18px;flex:none}
 .or-pay{display:flex;align-items:center;margin-right:6px}
+.or-tot{margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
 img.rcpt{width:44px;height:58px;flex:none;object-fit:cover;border-radius:6px;border:1px solid var(--border);background:#fff}
 img.rcpt.sm{width:26px;height:34px;vertical-align:middle}
 /* Требование кухни */

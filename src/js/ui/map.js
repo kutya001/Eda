@@ -13,9 +13,9 @@ const MAP_ST=[['пр. Жибек Жолу',[[42.8888,74.52],[42.8885,74.60],[42.
   ['пр. Молодой Гвардии',[[42.905,74.5670],[42.820,74.5672]]],['пр. Манаса',[[42.890,74.5880],[42.835,74.5878]]],['ул. Советская',[[42.905,74.6090],[42.815,74.6092]]],['ул. Фучика',[[42.905,74.6232],[42.860,74.6236]]],['ул. Шабдан Баатыра',[[42.900,74.6380],[42.825,74.6382]]]];
 const MAP_RV=[['р. Ала-Арча',[[42.915,74.553],[42.890,74.557],[42.865,74.551],[42.840,74.556],[42.810,74.552]]],['р. Аламедин',[[42.915,74.647],[42.890,74.643],[42.865,74.649],[42.840,74.644],[42.810,74.650]]],['БЧК',[[42.9060,74.52],[42.9045,74.60],[42.9070,74.68]]]];
 const MAP_PK=[['Дубовый парк',[42.8805,74.6050],[42.8783,74.6110]],['Ботанический сад',[42.8565,74.6200],[42.8500,74.6310]],['Парк Ататюрк',[42.8430,74.5950],[42.8385,74.6045]]];
-const mapCol=c=>!c?'var(--blue)':c[0]==='#'?c:`var(--${c})`;
+const mapCol=c=>!c?'var(--blue)':c[0]==='#'?c:`var(--${c==='gray'?'muted':c})`;
 const MAPV={};
-/* cfg: key — запомнить вид между перерисовками; points — [{id, geo, n (порций), label, title, color, approx, num, done, sel}]; kitchen — геоточка кухни;
+/* cfg: key — запомнить вид между перерисовками; points — [{id, geo, n (порций), label, title, color, approx, num, done (галочка), bad (крестик), sel}]; kitchen — геоточка кухни;
    lines — [{color, geo:[…]}]; legend — [[цвет, подпись]]; onPick(point, el) — клик по маркеру; pick — {geo, near, onSet(geo)} — режим выбора геоточки */
 function mapView(host,cfg){const st=cfg.key&&MAPV[cfg.key]?MAPV[cfg.key]:{s:0,cx:0,cy:0};if(cfg.key)MAPV[cfg.key]=st;
   host.innerHTML=`<div class="emap ${cfg.pick?'picking':''}" aria-label="Карта точек"><svg class="em-svg" aria-hidden="true"></svg><div class="em-mk"></div>
@@ -42,7 +42,7 @@ function mapView(host,cfg){const st=cfg.key&&MAPV[cfg.key]?MAPV[cfg.key]:{s:0,cx
     ps.slice().sort((a,b)=>(b.p.n||0)-(a.p.n||0)).forEach(a=>{if(used.has(a))return;used.add(a);const g=[a];if(R)ps.forEach(b=>{if(!used.has(b)&&Math.hypot(a.xy[0]-b.xy[0],a.xy[1]-b.xy[1])<R){used.add(b);g.push(b)}});groups.push(g)});
     const vis=([x,y])=>x>-60&&y>-60&&x<w+60&&y<h+60;
     mk.innerHTML=(hasGeo(cfg.kitchen)&&vis(toS(cfg.kitchen))?(([x,y])=>`<span class="em-k" style="left:${x}px;top:${y}px" title="Кухня: ${esc(ORG.address||'')}">${ic('flame','sm')}<span class="em-l">Кухня</span></span>`)(toS(cfg.kitchen)):'')+
-      groups.map((g,i)=>{if(g.length===1){const{p,xy:[x,y]}=g[0];if(!vis([x,y]))return '';return `<button type="button" class="em-m ${p.approx?'approx':''} ${p.done?'done':''} ${p.sel?'sel':''}" data-mi="${i}" style="left:${x}px;top:${y}px;--d:${sz(p.n)}px;--c:${mapCol(p.color)}" title="${esc(p.title||p.label||'')}"><b>${p.done?ic('check','sm'):esc(p.num!=null?p.num:p.n)}</b>${p.label&&(p.big||st.s>70)?`<span class="em-l">${esc(p.label)}</span>`:''}</button>`}
+      groups.map((g,i)=>{if(g.length===1){const{p,xy:[x,y]}=g[0];if(!vis([x,y]))return '';return `<button type="button" class="em-m ${p.approx?'approx':''} ${p.done?'done':''} ${p.sel?'sel':''}" data-mi="${i}" style="left:${x}px;top:${y}px;--d:${sz(p.n)}px;--c:${mapCol(p.color)}" title="${esc(p.title||p.label||'')}"><b>${p.bad?ic('x','sm'):p.done?ic('check','sm'):esc(p.num!=null?p.num:p.n)}</b>${p.label&&(p.big||st.s>70)?`<span class="em-l">${esc(p.label)}</span>`:''}</button>`}
         const n=g.reduce((a,x)=>a+(x.p.n||0),0);const x=g.reduce((a,q)=>a+q.xy[0],0)/g.length,y=g.reduce((a,q)=>a+q.xy[1],0)/g.length;if(!vis([x,y]))return '';
         return `<button type="button" class="em-m em-cl" data-ci="${i}" style="left:${x}px;top:${y}px;--d:${sz(n)+8}px" title="${g.length} ${plural(g.length,'точка','точки','точек')}: приблизить"><b>${n}</b><em>${g.length} ${plural(g.length,'точка','точки','точек')}</em></button>`}).join('')+
       (cfg.pick&&hasGeo(cfg.pick.geo)?(([x,y])=>`<span class="em-pin" style="left:${x}px;top:${y}px">${ic('pin')}</span>`)(toS(cfg.pick.geo)):'')}
