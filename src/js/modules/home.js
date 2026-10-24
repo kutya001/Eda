@@ -1,7 +1,9 @@
 'use strict';
-// «Главная»: сводка на сегодня по роли; каждая плашка открывает нужный список с уже применённым фильтром. Выручка — только с правом «Видеть деньги организации». У заказчика — свой вид
+// «Главная»: «Быстрый заказ» и сводка на сегодня по роли; каждая плашка открывает нужный список с уже применённым фильтром. Выручка — только с правом «Видеть деньги организации». У заказчика — свой вид
 /* ═════════════ Главная ═════════════ */
 function homeTabs(){return []}
+// «+» на Главной сразу открывает «Быстрый заказ»
+function homeAdd(){return [!isCust()&&can('ordEdit')&&{label:'Быстрый заказ',icon:'zap',run:()=>quickOrderDlg()}]}
 const homeGo=(m,t,p)=>()=>go(m,t,p);
 function renderHome(body){if(isCust())return custHome(body);
   if(!CUSTS.length&&!DISHES.length)return homeFirst(body);
@@ -12,6 +14,8 @@ function renderHome(body){if(isCust())return custHome(body);
   add(can('ordView'),{id:'tm',icon:'clock',color:'purple',label:'Заказы на завтра',value:tmr.reduce((a,o)=>a+ordPortions(o),0),unit:'порц.',sub:`${tmr.length} ${plural(tmr.length,'заказ','заказа','заказов')} · ${isClosed(tm)?'приём закрыт':'приём до '+fmtDT(cutoffAt(tm)).slice(11)}`},homeGo('orders','tomorrow'));
   const pl=PLANS.find(p=>p.date===tm&&p.shift===defShift());const plOk=!pl||pl.status!=='Черновик';
   add(can('ktView')&&(can('ktApprove')||me().role==='manager'),{id:'plan',icon:'lock',color:plOk?'green':'orange',label:'План кухни на завтра',value:pl?pl.status:'Нет заказов',sub:pl&&!plOk?'не утверждён':pl?`${planPortions(pl)} порц.`:''},homeGo('kitchen','tomorrow'));
+  const unp=can('ordView')&&canPrice()?unpaidOrders():[];
+  add(can('ordView')&&canPrice(),{id:'unp',icon:'wallet',color:unp.length?'blue':'green',label:'Не оплачено',value:fmtM(unp.reduce((a,o)=>a+ordLeft(o),0),false),unit:'сом',sub:unp.length?`${unp.length} ${plural(unp.length,'заказ','заказа','заказов')} на сегодня и вперёд`:'всё оплачено'},homeGo('orders','all',{payst:{type:'enum',vals:['Не оплачен','Частично']},date:{type:'date',from:TODAY,to:null}}));
   const nd=v.filter(o=>o.date===TODAY&&o.status==='Не доставлен');
   add(can('ordView')&&feat('delivery'),{id:'nd',icon:'alert',color:nd.length?'red':'green',label:'Не доставлено',value:nd.length,sub:'сегодня'},homeGo('orders','all',{status:{type:'enum',vals:['Не доставлен']},date:{type:'date',from:TODAY,to:TODAY}}));
   if(feat('stock')&&can('skView')){const lo=lowStock(),ex=expSoon();add(true,{id:'lo',icon:'archive',color:lo.length?'red':'green',label:'Ниже минимума',value:lo.length,sub:'продуктов'},homeGo('stock','rest',{low:{type:'enum',vals:['Да']}}));
@@ -22,12 +26,13 @@ function renderHome(body){if(isCust())return custHome(body);
   if(feat('delivery')&&can('dlRoute')&&!isOwner()){const t=routeTrips()[0];add(true,{id:'rt',icon:'truck',color:t?t.status==='В пути'?'yellow':'purple':'gray',label:'Мой рейс сегодня',value:t?t.no:'Нет',sub:t?`${t.status} · ${tripPoints(t)} ${plural(tripPoints(t),'точка','точки','точек')}`:'рейс не назначен'},homeGo('route'))}
   const role=isOwner()?'Владелец':roleName(me().role);
   let h=`<div class="hello"><span>Сегодня <b>${dayLbl(TODAY)}</b></span><span>·</span><span>${esc(ORG.name)}</span><span>·</span><span>${esc(role)}</span>${frozen()?`<span class="pill yellow sm">${esc(ORG.plat.status)}: только просмотр</span>`:''}</div>`;
+  if(can('ordEdit')&&!frozen())h+=`<button class="btn cta big-btn qo-home" id="hm-qo">${ic('zap')}Быстрый заказ<small>клиент позвонил или написал</small></button>`;
   h+=P.length?`<div class="plates">${P.map(p=>plate(p.cfg)).join('')}</div>`:'';
   if(can('orgMoney'))h+=homeMoney();
   if(can('ordView')||can('ktView')||can('dlView'))h+=homeToday();
   if(!P.length&&!can('orgMoney'))h+=`<div class="state">${ic('home','lg')}<b>Добро пожаловать</b><span>Откройте модуль в меню, чтобы начать работу.</span></div>`;
   body.innerHTML=h;
-  body.onclick=e=>{const b=e.target.closest('[data-plate]');if(b){const p=P.find(x=>x.cfg.id===b.dataset.plate);if(p)p.run();return}const g=e.target.closest('[data-goto]');if(g){const[a,t]=g.dataset.goto.split('.');go(a,t)}}}
+  body.onclick=e=>{if(e.target.closest('#hm-qo'))return quickOrderDlg();const b=e.target.closest('[data-plate]');if(b){const p=P.find(x=>x.cfg.id===b.dataset.plate);if(p)p.run();return}const g=e.target.closest('[data-goto]');if(g){const[a,t]=g.dataset.goto.split('.');go(a,t)}}}
 // Выручка сегодня и за месяц — по накладным (доставленным заказам); порций сегодня — по активным заказам
 function homeMoney(){const ms=monthStart(TODAY);const live=NAKLS.filter(n=>n.status==='Действует');const td=live.filter(n=>n.date===TODAY).reduce((a,n)=>a+n.sum,0),mo=live.filter(n=>n.date>=ms).reduce((a,n)=>a+n.sum,0);
   const por=ORDERS.filter(o=>o.date===TODAY&&ordActive(o)).reduce((a,o)=>a+ordPortions(o),0);const days=[...Array(14)].map((_,i)=>addDays(TODAY,i-13));const by=days.map(d=>live.filter(n=>n.date===d).reduce((a,n)=>a+n.sum,0));const mx=Math.max(1,...by);
@@ -41,7 +46,7 @@ function homeToday(){const pl=PLANS.find(p=>p.date===TODAY&&p.shift===defShift()
     ${can('ordView')?`<button class="li" data-goto="orders.today"><span class="pl-dot blue">${ic('task')}</span><div class="grow"><div class="t1">Заказы: ${os.filter(ordActive).length}</div><div class="t2">${Object.entries(cnt).map(([s,n])=>`${s} ${n}`).join(' · ')||'нет'}</div></div></button>`:''}
     ${feat('delivery')&&can('dlView')?`<button class="li" data-goto="delivery.today"><span class="pl-dot yellow">${ic('truck')}</span><div class="grow"><div class="t1">Рейсы: ${ts.length}</div><div class="t2">${ts.map(t=>`${t.no} ${empName(t.courier)} — ${t.status}`).join(' · ')||'не сформированы'}</div></div></button>`:''}</div></div>`}
 // Пустая организация: первые шаги
-function homeFirst(body){const steps=[[can('cuView'),'customers.act','building','Добавьте заказчиков','По одному или списком из Excel, с точками доставки'],[can('dsView'),'dishes.list','list','Заведите блюда и техкарты','Продукты, выход порции, цена — себестоимость посчитается сама'],
+function homeFirst(body){const steps=[[can('cuView'),'customers.org','building','Добавьте заказчиков','Юрлица по одному или списком из Excel; физлица появятся сами при быстром заказе'],[can('dsView'),'dishes.list','list','Заведите блюда и техкарты','Продукты, выход порции, цена — себестоимость посчитается сама'],
   [can('mnView'),'menu.week','calendar','Составьте и опубликуйте меню','Заказчики начнут заказывать на завтра'],[can('stView'),'staff.list','users','Пригласите сотрудников','Шеф-повара, поваров, курьеров, бухгалтера'],[isOwner(),'org.policy','sliders','Проверьте учётную политику','Какие функции нужны: склад, доставка, вход для заказчиков']].filter(s=>s[0]);
   body.innerHTML=`<div class="state">${ic('home','lg')}<b>Добро пожаловать в Eda</b><span>Сводка на сегодня появится, когда будут заказчики, блюда и меню. Начните с этих шагов:</span></div><div class="box"><div class="list">${steps.map((s,i)=>`<button class="li" data-goto="${s[1]}"><span class="rt-n">${i+1}</span><span class="pl-dot blue">${ic(s[2])}</span><div class="grow"><div class="t1">${s[3]}</div><div class="t2">${s[4]}</div></div>${ic('right','sm')}</button>`).join('')}</div></div>`;
   body.onclick=e=>{const g=e.target.closest('[data-goto]');if(g){const[a,t]=g.dataset.goto.split('.');go(a,t)}}}

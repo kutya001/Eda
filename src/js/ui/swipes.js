@@ -1,13 +1,13 @@
 'use strict';
-// Свайпы на телефоне: закрытие окон вниз, листание вкладок
+// Свайпы на телефоне: закрытие окон вниз, листание вкладок; карта точек (.emap) жесты забирает себе
 /* ═════════════ Swipes (touch only) ═════════════ */
 // Rules (ТЗ «Управление свайпами»): 1:1 follow, direction locked after 10 px, fires past a distance threshold or on a flick (≥0.5 px/ms),
 // otherwise springs back; the finishing animation keeps the finger's speed.
 const RM=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
 const FLICK=.5,SLOP=10,EASE='cubic-bezier(.2,.6,.35,1)';
-function hScrollEl(el,stop){for(let n=el;n&&n!==stop&&n.nodeType===1;n=n.parentElement){if(n.matches('.tabs,.bnav,.scf,input[type=range]'))return true;const ox=getComputedStyle(n).overflowX;if((ox==='auto'||ox==='scroll')&&n.scrollWidth>n.clientWidth+2)return n}return null}
+function hScrollEl(el,stop){for(let n=el;n&&n!==stop&&n.nodeType===1;n=n.parentElement){if(n.matches('.tabs,.bnav,.scf,.emap,input[type=range]'))return true;const ox=getComputedStyle(n).overflowX;if((ox==='auto'||ox==='scroll')&&n.scrollWidth>n.clientWidth+2)return n}return null}
 const canScrollX=(n,dx)=>dx<0?n.scrollLeft<n.scrollWidth-n.clientWidth-1:n.scrollLeft>1;
-function hScroll(el,stop){for(let n=el;n&&n!==stop&&n.nodeType===1;n=n.parentElement){if(n.matches('.tabs,.bnav,.scf,.gscroll,input[type=range]'))return true;const ox=getComputedStyle(n).overflowX;if((ox==='auto'||ox==='scroll')&&n.scrollWidth>n.clientWidth+2)return true}return false}
+function hScroll(el,stop){for(let n=el;n&&n!==stop&&n.nodeType===1;n=n.parentElement){if(n.matches('.tabs,.bnav,.scf,.gscroll,.emap,input[type=range]'))return true;const ox=getComputedStyle(n).overflowX;if((ox==='auto'||ox==='scroll')&&n.scrollWidth>n.clientWidth+2)return true}return false}
 function tracker(){const pts=[];return{add(x,y,ts){const t=ts||performance.now();pts.push({x,y,t});while(pts.length>2&&t-pts[0].t>90)pts.shift()},v(){if(pts.length<2)return{x:0,y:0};const a=pts[0],b=pts[pts.length-1];const dt=Math.max(8,b.t-a.t);return{x:(b.x-a.x)/dt,y:(b.y-a.y)/dt}},reset(){pts.length=0}}}
 // The ease-out curve starts ~3× faster than its average, so dist/v*3 continues at the release speed.
 const finishMs=(dist,v)=>Math.round(Math.max(120,Math.min(320,Math.abs(v)>.05?Math.abs(dist)/Math.abs(v)*3:260)));

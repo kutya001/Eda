@@ -32,7 +32,7 @@ const AGG_L={sum:'Сумма',avg:'Среднее',min:'Минимум',max:'М�
 function gKey(c,r){const v=c.val(r);if(v==null||v==='')return '';return c.type==='datetime'?String(v).slice(0,10):String(v)}
 function gLabel(c,r){const v=c.val(r);if(v==null||v==='')return '(Пусто)';if(c.type==='datetime')return fmtD(String(v).slice(0,10));return colTxt(c,r)||'(Пусто)'}
 function aggVal(c,how,rows){const xs=rows.map(r=>c.val(r)).filter(v=>v!=null&&v!==''&&!isNaN(+v)).map(Number);if(how==='count')return xs.length;if(!xs.length)return null;if(how==='avg')return xs.reduce((a,b)=>a+b,0)/xs.length;if(how==='min')return Math.min(...xs);if(how==='max')return Math.max(...xs);return xs.reduce((a,b)=>a+b,0)}
-function aggOf(s,c){return s.agg[c.key]!=null?s.agg[c.key]:c.type==='money'?'sum':''}
+function aggOf(s,c){return s.agg[c.key]!=null?s.agg[c.key]:c.type==='money'||c.total?'sum':''}
 function aggTxt(c,how,v){if(v==null)return '—';if(how==='count'||(c.type==='int'&&how!=='avg'))return String(v);return fmtM(v,c.type==='money'||how==='avg')}
 /* Служебные колонки: Создал / Изменил / Создано / Изменено — во всех списках по умолчанию */
 function auditCols(acc){const A=r=>(acc?acc(r):r)||{};return [

@@ -1,5 +1,5 @@
 'use strict';
-// Общие расчёты предметной области: справочники, области видимости, цены, техкарты и себестоимость, остатки склада, долги, печать, фото, строки документов
+// Общие расчёты предметной области: справочники, области видимости, заказчики (юрлица и физлица), телефон, адреса и места доставки, цены, техкарты и себестоимость, остатки склада, долги, оплата заказа, печать, фото, строки документов
 /* ═════════════ Справочники ═════════════ */
 // Значения справочника платформы для выбора: только включённые; уже выбранное отключённое значение остаётся в записи как есть
 const dictOpts=(id,cur)=>DICT[id].items.filter(x=>x.active!==false||x.code===cur).sort((a,b)=>a.order-b.order).map(x=>[x.code,x.name+(x.active===false?' (отключено)':'')]);
@@ -78,8 +78,41 @@ const cutoffAt=date=>addDays(date,-1)+' '+(ORG.policy.cutoff||'16:00');
 // Меню, открытое заново откатом из «Приём закрыт», принимает заказы и после времени закрытия
 const isClosed=(date,shift)=>{const m=menuOf(date,shift);if(date<TODAY)return true;if(m&&m.reopen)return m.status==='Приём закрыт';return nowStamp()>=cutoffAt(date)||!!(m&&m.status==='Приём закрыт')};
 const custName=id=>(CUM[id]||{}).name||'—';
-const pointOf=o=>{if(o.pickup)return {name:'Самовывоз',addr:ORG.address,win:o.time||''};const c=CUM[o.cust];return (c&&c.points.find(p=>p.id===o.point))||{name:'—',addr:''}};
+// Адрес доставки заказа: точка юрлица или сохранённый адрес физлица; адрес «только для этого заказа» хранится в самом заказе (o.addr)
+const pointOf=o=>{if(o.pickup)return {name:'Самовывоз',addr:ORG.address,win:o.time||'',geo:ORG.geo};if(o.addr)return o.addr;const c=CUM[o.cust];return (c&&c.points.find(p=>p.id===o.point))||{name:'—',addr:''}};
 const ordPointName=o=>o.pickup?'Самовывоз':pointOf(o).name;
+
+/* ═════════════ Заказчики: юрлица и физлица, телефон, адреса и места доставки ═════════════ */
+const isPerson=c=>!!c&&c.kind==='person';
+const kindName=c=>isPerson(c)?'Физлицо':'Юрлицо';
+// Телефон вводится в любом виде (0555 123 456, 555123456, +996 555 123 456) и хранится как +996 555 123 456; не 9 цифр после кода — пусто
+function phoneNorm(v){let d=String(v||'').replace(/\D/g,'');if(d.length===12&&d.startsWith('996'))d=d.slice(3);else if(d.length===10&&d.startsWith('0'))d=d.slice(1);return d.length===9?`+996 ${d.slice(0,3)} ${d.slice(3,6)} ${d.slice(6)}`:''}
+const phoneDigits=v=>String(v||'').replace(/\D/g,'');
+// Один номер — один клиент-физлицо (в том числе в архиве)
+const phoneTaken=(ph,except)=>{const n=phoneNorm(ph);return n?CUSTS.find(c=>c!==except&&isPerson(c)&&phoneNorm(c.phone)===n):null};
+// Поиск клиента для быстрого заказа: по последним цифрам номера (от 3 цифр) и по имени; архив не ищется
+function custFind(q){const t=norm(q).trim();if(!t)return [];let dg=phoneDigits(q);if(dg.length===10&&dg[0]==='0')dg=dg.slice(1);const digits=/^[\d\s()+-]+$/.test(q.trim());
+  return visCusts().filter(c=>digits?dg.length>=3&&phoneDigits(c.phone).includes(dg):norm(c.name).includes(t)).sort((a,b)=>((custStats()[b.id]||{}).lastAt||'').localeCompare((custStats()[a.id]||{}).lastAt||'')||COLL.compare(a.name,b.name)).slice(0,8)}
+// Заказов, сумма, последний заказ и последний адрес — по активным заказам
+const custStats=memo(()=>{const m={};ORDERS.forEach(o=>{if(!ordActive(o))return;const s=m[o.cust]=m[o.cust]||{n:0,sum:0,last:'',lastAt:'',pt:null,used:{}};s.n++;s.sum+=ordSum(o);
+  if(o.point)s.used[o.point]=o._ca>(s.used[o.point]||'')?o._ca:s.used[o.point];if(o._ca>s.lastAt){s.lastAt=o._ca;s.last=o.date;s.pt=o.pickup?null:pointOf(o)}});return m});
+// Сохранённые адреса: последний использованный — первым
+const custPoints=c=>{const u=(custStats()[c.id]||{}).used||{};return c.points.slice().sort((a,b)=>(u[b.id]||'').localeCompare(u[a.id]||''))};
+const lastAddr=c=>{const s=custStats()[c.id];const p=s&&s.pt||custPoints(c)[0];return p?p.addr+(p.mark?', '+p.mark:''):''};
+// Места доставки (справочник организации): адрес, район и геоточка; адрес, привязанный к месту, берёт геоточку места
+const places=()=>ODICT.place?ODICT.place.items:[];
+const placeOf=code=>code?places().find(x=>x.code===code):null;
+const hasGeo=g=>Array.isArray(g)&&g.length===2&&isFinite(g[0])&&isFinite(g[1]);
+const ptGeo=pt=>{const pl=pt&&placeOf(pt.place);return pl&&hasGeo(pl.geo)?pl.geo:pt&&hasGeo(pt.geo)?pt.geo:null};
+// Группа точки на карте, в распределении и в требовании: место — одна группа, остальные адреса по одному
+const ptKey=o=>{if(o.pickup)return 'pickup';const pt=pointOf(o);return pt.place&&placeOf(pt.place)?'pl:'+pt.place:o.addr?'ad:'+o.id:'pt:'+o.cust+':'+o.point};
+const ptLabel=o=>{if(o.pickup)return 'Самовывоз';const pt=pointOf(o);const pl=placeOf(pt.place);if(pl)return pl.name;const c=CUM[o.cust];return isPerson(c)?pt.addr||pt.name:custName(o.cust)+' · '+pt.name};
+// Центр района — по геоточкам уже известных адресов и мест района: для примерной геоточки и начального вида карты
+function distGeo(code){const gs=[];if(code){CUSTS.forEach(c=>c.points.forEach(p=>{if(p.district===code&&hasGeo(p.geo)&&!p.approx)gs.push(p.geo)}));places().forEach(p=>{if(p.district===code&&hasGeo(p.geo))gs.push(p.geo)})}
+  if(!gs.length)return hasGeo(ORG.geo)?ORG.geo:null;const avg=k=>Math.round(gs.reduce((a,g)=>a+g[k],0)/gs.length*1e4)/1e4;return [avg(0),avg(1)]}
+// Примерная геоточка (пунктирный маркер): в продукте её ставит геокодер по адресу, в макете — центр района со сдвигом по тексту адреса
+function autoGeo(p){if(ptGeo(p)||!p.district)return p;const g=distGeo(p.district);if(!g)return p;let h=0;for(const ch of String(p.addr||''))h=(h*31+ch.charCodeAt(0))%1600;
+  p.geo=[Math.round((g[0]+(h%40-20)/4000)*1e4)/1e4,Math.round((g[1]+(Math.floor(h/40)-20)/3000)*1e4)/1e4];p.approx=true;return p}
 
 /* ═════════════ Склад: движение, остатки, средняя цена ═════════════ */
 // Движение продуктов собирается из проведённых документов: приход +, списание −, инвентаризация ± разница
@@ -101,18 +134,32 @@ const lowStock=()=>PRODS.filter(p=>p.min&&(balances()[p.id]||0)<p.min);
 const expSoon=()=>PRODS.filter(p=>{const e=expiryOf()[p.id];return e&&e<=addDays(TODAY,2)&&(balances()[p.id]||0)>0});
 
 /* ═════════════ Деньги: начисления, оплаты, долг, просрочка ═════════════ */
-// Долг = действующие накладные − проведённые оплаты. Оплата по счёту сначала закрывает накладные этого счёта, остаток и оплаты без счёта — самые старые накладные (FIFO); переплата остаётся авансом
+// Долг = действующие накладные − проведённые оплаты. Оплата по заказу сначала закрывает накладную этого заказа (до доставки ждёт её как аванс), оплата по счёту — накладные этого счёта,
+// остаток и оплаты без счёта и заказа — самые старые накладные (FIFO); переплата и оплата отменённого заказа остаются авансом
 function ledger(cid){const c=CUM[cid]||{};const ns=NAKLS.filter(n=>n.cust===cid&&n.status==='Действует').sort((a,b)=>a.date<b.date?-1:1);const ps=PAYS.filter(p=>p.cust===cid&&p.status==='Проведена').sort((a,b)=>a.date<b.date?-1:1);
-  const charged=ns.reduce((a,n)=>a+n.sum,0),paid=ps.reduce((a,p)=>a+p.sum,0);const lf=Object.fromEntries(ns.map(n=>[n.id,n.sum]));let pool=0,overdue=0,days=0;const open=[];
-  ps.forEach(p=>{let r=p.sum;const b=p.bill&&BILLS.find(x=>x.id===p.bill);if(b)b.nakls.forEach(id=>{if(r<=0||lf[id]==null)return;const k=Math.min(r,lf[id]);lf[id]-=k;r-=k});pool+=r});
+  const charged=ns.reduce((a,n)=>a+n.sum,0),paid=ps.reduce((a,p)=>a+p.sum,0);const lf=Object.fromEntries(ns.map(n=>[n.id,n.sum]));let pool=0,hold=0,overdue=0,days=0;const open=[];const byOrd=Object.fromEntries(ns.filter(n=>n.order).map(n=>[n.order,n]));
+  ps.forEach(p=>{let r=p.sum;if(p.order){const n=byOrd[p.order];const o=ORM[p.order];if(n){const k=Math.min(r,lf[n.id]);lf[n.id]-=k;r-=k}else if(o&&o.status!=='Отменён'){hold+=r;r=0}}
+    const b=p.bill&&BILLS.find(x=>x.id===p.bill);if(b)b.nakls.forEach(id=>{if(r<=0||lf[id]==null)return;const k=Math.min(r,lf[id]);lf[id]-=k;r-=k});pool+=r});
   ns.forEach(n=>{const k=Math.min(pool,lf[n.id]);lf[n.id]=Math.round((lf[n.id]-k)*100)/100;pool-=k;const left=lf[n.id];if(left>0.009){open.push({n,left});const due=addDays(n.date,c.delay||0);if(due<TODAY){overdue+=left;days=Math.max(days,Math.round((stAt(TODAY)-stAt(due))/864e5))}}});
   const last=ps[ps.length-1];
-  return {charged,paid,debt:Math.round((charged-paid)*100)/100,overdue:Math.round(overdue*100)/100,days,last:last?last.date:'',open,lf,advance:pool>0.009?Math.round(pool*100)/100:0}}
+  return {charged,paid,debt:Math.round((charged-paid)*100)/100,overdue:Math.round(overdue*100)/100,days,last:last?last.date:'',open,lf,advance:pool+hold>0.009?Math.round((pool+hold)*100)/100:0}}
 const ledgers=memo(()=>Object.fromEntries(CUSTS.map(c=>[c.id,ledger(c.id)])));
 const debtOf=cid=>(ledgers()[cid]||{debt:0}).debt;
 const limitOver=(c,add=0)=>c&&c.limit!=null&&c.limit!==''&&debtOf(c.id)+add>+c.limit;
 // Сальдо на дату для акта сверки
 function saldoOn(cid,date){const ch=NAKLS.filter(n=>n.cust===cid&&n.status==='Действует'&&n.date<date).reduce((a,n)=>a+n.sum,0);const pd=PAYS.filter(p=>p.cust===cid&&p.status==='Проведена'&&p.date<date).reduce((a,p)=>a+p.sum,0);return ch-pd}
+// «Оплата» заказа считается сама: по оплатам, привязанным к заказу, а после доставки — по закрытию его накладной
+const ordPays=o=>PAYS.filter(p=>p.order===o.id&&p.status==='Проведена');
+// Оплачено заранее (при быстром заказе, в карточке заказа) — без наличных, полученных курьером при доставке
+const ordPrepaid=o=>Math.round(ordPays(o).filter(p=>!p.cour).reduce((a,p)=>a+p.sum,0)*100)/100;
+function ordPaid(o){const n=o.nakl&&NAKLS.find(x=>x.id===o.nakl&&x.status==='Действует');if(n){const L=ledgers()[o.cust];const left=L&&L.lf[n.id]!=null?L.lf[n.id]:n.sum;return Math.round((n.sum-left)*100)/100}return Math.min(ordSum(o),Math.round(ordPays(o).reduce((a,p)=>a+p.sum,0)*100)/100)}
+const ordLeft=o=>Math.max(0,Math.round((ordSum(o)-ordPaid(o))*100)/100);
+function payStatus(o){if(o.status==='Отменён'||ordSum(o)<=0)return '';const p=ordPaid(o);if(p>=ordSum(o)-0.009)return 'Оплачен';if(p>0.009)return 'Частично';const c=CUM[o.cust];return c&&!isPerson(c)&&o.pay==='СО-001'?'По счёту':'Не оплачен'}
+const PAY_C={'Оплачен':['green','check'],'Частично':['yellow','half'],'Не оплачен':['blue','wallet'],'По счёту':['purple','file']};
+// «Не оплачен» после «Доставлен» — красная отметка: это долг заказчика
+const payPill=(o,x='sm')=>{const s=payStatus(o);return s?pill(s,s==='Не оплачен'&&o.status==='Доставлен'?{[s]:['red','alert']}:PAY_C,x):''};
+// Заказы на сегодня и вперёд, которые ждут оплаты (кроме «По счёту»)
+const unpaidOrders=()=>visOrders().filter(o=>o.date>=TODAY&&ordActive(o)&&['Не оплачен','Частично'].includes(payStatus(o)));
 const supDebt=sid=>{const rs=RECEIPTS.filter(r=>r.sup===sid&&r.status==='Проведён'&&r.pay==='debt');const s=rs.reduce((a,r)=>a+r.lines.reduce((x,l)=>x+l.qty*l.price,0),0);return Math.round((s-SUPPAYS.filter(p=>p.sup===sid).reduce((a,p)=>a+p.sum,0))*100)/100};
 const docSum=d=>Math.round(d.lines.reduce((a,l)=>a+(+l.qty||0)*(+l.price||0),0)*100)/100;
 
@@ -130,13 +177,13 @@ function bindPhoto(el,id,st){const f=$('#'+id,el);if(!f)return;f.onchange=()=>{c
 const demoPhoto=t=>'data:image/svg+xml;utf8,'+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="110"><rect width="160" height="110" rx="10" fill="#d9c9b0"/><text x="80" y="60" font-size="13" text-anchor="middle" fill="#5a4630" font-family="sans-serif">${t||'Фото'}</text></svg>`);
 
 /* ═════════════ Строки документа (продукты, позиции): одна таблица для приходов, списаний, техкарт, меню, заказов ═════════════ */
-/* cols: [{key,label,type:'sel'|'num'|'date'|'text'|'ro', opts:()=>[[v,l]], w, ro:(row)=>html, req}]; rows — массив объектов (меняется на месте) */
-function linesHtml(id,rows,cols,{add='Добавить строку',ro=false,foot=''}={}){
+/* cols: [{key,label,type:'sel'|'num'|'date'|'text'|'ro', opts:()=>[[v,l]], w, ro:(row)=>html, req}]; rows — массив объектов (меняется на месте); cards — на телефоне строки плитками */
+function linesHtml(id,rows,cols,{add='Добавить строку',ro=false,foot='',cards=false}={}){
   const cell=(c,r,i)=>{if(ro||c.type==='ro')return `<td class="${c.type==='num'||c.num?'num':''}">${c.ro?c.ro(r,i):esc(r[c.key]??'')}</td>`;const v=r[c.key]??'';
     if(c.type==='sel')return `<td>${sel(`${id}-${i}-${c.key}`,[['','—'],...c.opts(r)],v,`data-ln="${i}" data-k="${c.key}"`)}</td>`;
     const t=c.type==='date'?'type="date"':c.type==='num'?'inputmode="decimal"':'';
     return `<td class="${c.type==='num'?'num':''}"><input class="inp ${c.type==='num'?'tnum':''}" ${t} data-ln="${i}" data-k="${c.key}" value="${esc(c.type==='num'&&v!==''?String(v).replace('.',','):v)}"></td>`};
-  return `<div class="tbl-wrap ln-wrap"><table class="mini ln" id="${id}"><thead><tr>${cols.map(c=>`<th class="${c.type==='num'||c.num?'num':''}" ${c.w?`style="width:${c.w}px"`:''}>${esc(c.label)}${c.req&&!ro?' <span class="red">*</span>':''}</th>`).join('')}${ro?'':'<th style="width:36px"></th>'}</tr></thead>
+  return `<div class="tbl-wrap ln-wrap"><table class="mini ln${cards?' m-cards':''}" id="${id}"><thead><tr>${cols.map(c=>`<th class="${c.type==='num'||c.num?'num':''}" ${c.w?`style="width:${c.w}px"`:''}>${esc(c.label)}${c.req&&!ro?' <span class="red">*</span>':''}</th>`).join('')}${ro?'':'<th style="width:36px"></th>'}</tr></thead>
     <tbody>${rows.map((r,i)=>`<tr>${cols.map(c=>cell(c,r,i)).join('')}${ro?'':`<td><button type="button" class="icon-btn sm" data-ln-del="${i}" aria-label="Удалить строку">${ic('trash','sm')}</button></td>`}</tr>`).join('')||`<tr><td colspan="${cols.length+1}" class="muted">Строк пока нет</td></tr>`}</tbody>${foot}</table></div>${ro?'':`<button type="button" class="btn sm" data-ln-add="${id}">${ic('plus','sm')}${esc(add)}</button>`}`}
 function bindLines(el,id,rows,cols,{blank,onChange,redraw}){
   $$(`#${id} [data-ln]`,el).forEach(x=>{const ev=x.tagName==='SELECT'?'change':'input';x.addEventListener(ev,()=>{const r=rows[+x.dataset.ln];const c=cols.find(q=>q.key===x.dataset.k);r[c.key]=c.type==='num'?(x.value.trim()===''?'':num(x.value)):x.value;onChange&&onChange(r,c.key,x)})});

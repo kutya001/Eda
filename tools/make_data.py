@@ -7,7 +7,7 @@
 
 Все даты в demoDB.json привязаны к опорной дате meta.anchor; при загрузке макет сдвигает их на «сегодня».
 Запуск из корня репозитория: python3 tools/make_data.py"""
-import json, os, random, datetime as dt
+import json, os, random, datetime as dt, urllib.parse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 A = dt.date(2026, 10, 22)  # опорная дата демо-данных (четверг)
@@ -39,7 +39,7 @@ P = lambda i, n, ds, **k: {'id': i, 'name': n, 'desc': ds, **k}
 PERMISSIONS = [
     {'id': 'orders', 'title': 'Заказы', 'scope': True, 'perms': [
         P('ordView', 'Просматривать заказы', 'Видеть модуль «Заказы» и заказы в карточке заказчика в пределах области', view=True),
-        P('ordEdit', 'Создавать и изменять заказы', 'Оформлять заказ за заказчика и менять состав до закрытия приёма'),
+        P('ordEdit', 'Создавать и изменять заказы', 'Оформлять заказ за заказчика, в том числе «Быстрый заказ» с телефона, и менять состав до закрытия приёма'),
         P('ordAccept', 'Принимать заказы', 'Переводить заказ из «Новый» в «Принят», выдавать заказы на самовывозе'),
         P('ordLate', 'Менять заказы после закрытия приёма', 'Создавать и менять заказы на дату, по которой приём уже закрыт'),
         P('ordCancel', 'Отменять заказы', 'Ставить заказу «Отменён» с причиной, решать судьбу недоставленных заказов'),
@@ -48,9 +48,9 @@ PERMISSIONS = [
         P('ordBack', 'Откатывать статус заказа', 'Вернуть заказ на предыдущий шаг с причиной (в том числе отменить доставку)', ownerGrants=True)]},
     {'id': 'customers', 'title': 'Заказчики', 'scope': True, 'perms': [
         P('cuView', 'Просматривать заказчиков', 'Видеть модуль «Заказчики», карточки и долги в пределах области', view=True),
-        P('cuEdit', 'Создавать и изменять заказчиков', 'Добавлять заказчика, менять реквизиты, точки доставки, цены и ответственного'),
+        P('cuEdit', 'Создавать и изменять заказчиков', 'Добавлять юрлица и физлица, менять реквизиты, точки доставки и адреса, цены и ответственного'),
         P('cuStatus', 'Приостанавливать и архивировать', 'Менять статус обслуживания заказчика: «Приостановлен», «В архиве» и обратно'),
-        P('cuImport', 'Загружать заказчиков списком', 'Загрузка из Excel и «Выгрузить шаблон»'),
+        P('cuImport', 'Загружать заказчиков списком', 'Загрузка юрлиц из Excel и «Выгрузить шаблон»'),
         P('cuAccess', 'Давать доступ в приложение', 'Приглашать представителей заказчика и отключать их вход')]},
     {'id': 'dishes', 'title': 'Блюда', 'perms': [
         P('dsView', 'Просматривать блюда', 'Видеть блюда, комплексы и техкарты', view=True),
@@ -62,7 +62,7 @@ PERMISSIONS = [
         P('mnPublish', 'Публиковать меню и закрывать приём', 'Переводить меню в «Опубликовано» и «Приём закрыт»'),
         P('mnBack', 'Откатывать статусы меню', 'Вернуть меню на предыдущий шаг с причиной', ownerGrants=True)]},
     {'id': 'kitchen', 'title': 'Кухня', 'perms': [
-        P('ktView', 'Просматривать план кухни', 'Видеть план на дату, сборочный лист и потребность в продуктах', view=True),
+        P('ktView', 'Просматривать план кухни', 'Видеть план на дату, требование кухни по точкам и потребность в продуктах', view=True),
         P('ktWork', 'Запускать план и отмечать выпуск', 'Переводить план в «В работе», вносить «Выпущено» по блюдам'),
         P('ktApprove', 'Утверждать и завершать план', 'Ставить «Утверждён» и «Выполнен», задавать запас и ответственных поваров'),
         P('ktBack', 'Откатывать план кухни', 'Вернуть план на шаг назад; откат «Выполнен» отменяет списание продуктов', ownerGrants=True)]},
@@ -75,12 +75,12 @@ PERMISSIONS = [
     {'id': 'delivery', 'title': 'Доставка', 'scope': True, 'feature': 'delivery', 'perms': [
         P('dlView', 'Просматривать доставку', 'Видеть рейсы и курьеров в пределах области', view=True),
         P('dlTrips', 'Формировать рейсы', 'Создавать рейсы, распределять заказы, менять порядок объезда'),
-        P('dlLoad', 'Отмечать погрузку', 'Переводить рейс в «Загружен» после погрузки по сборочному листу'),
+        P('dlLoad', 'Отмечать погрузку', 'Переводить рейс в «Загружен» после погрузки по чек-листу'),
         P('dlRoute', 'Работать по маршруту', 'Начинать рейс, отмечать «Доставлено» и «Не доставлено», сдавать наличные'),
         P('dlBack', 'Откатывать статус рейса', 'Вернуть рейс на предыдущий шаг с причиной', ownerGrants=True)]},
     {'id': 'money', 'title': 'Деньги', 'perms': [
         P('myView', 'Просматривать деньги', 'Долги заказчиков, документы, оплаты и наличные курьеров', view=True),
-        P('myPay', 'Вносить оплаты', 'Записывать оплаты заказчиков'),
+        P('myPay', 'Вносить оплаты', 'Записывать оплаты заказчиков, в том числе оплату заказа с чеком'),
         P('myCancel', 'Отменять оплаты', 'Отменить оплату с причиной; долг вернётся'),
         P('myDocs', 'Формировать счета и акты сверки', 'Счета на оплату за период и акты сверки'),
         P('myCash', 'Принимать наличные от курьеров', 'Подтверждать сдачу наличных курьером'),
@@ -97,7 +97,7 @@ PERMISSIONS = [
         P('viewAll', 'Видеть всё', 'Ставит область «Все» во всех группах сразу'),
         P('export', 'Выгружать в Excel', 'Кнопка «В Excel» во всех списках'),
         P('orgMoney', 'Видеть деньги организации', 'Выручка и порции на «Главной»'),
-        P('dcEdit', 'Вести справочники организации', 'Смены, транспорт, районы, причины отмены, недоставки и списания')]},
+        P('dcEdit', 'Вести справочники организации', 'Смены, транспорт, районы и места доставки, причины отмены, недоставки и списания')]},
 ]
 FEATURES = [
     {'id': 'orders', 'name': 'Заказы, меню и кухня', 'desc': 'Основа приложения: заказчики, блюда, меню, заказы, план кухни и деньги.', 'kind': 'core', 'icon': 'task'},
@@ -159,8 +159,8 @@ PLATFORM_DICTS = {
                 'items': items('КБ', ['Первое', 'Второе', 'Гарнир', 'Салат', 'Выпечка', 'Десерт', 'Напиток', 'Хлеб', 'Полуфабрикат'])},
     'allergen': {'name': 'Аллергены', 'icon': 'alert', 'what': '14 основных аллергенов', 'where': 'Продукты, блюда, меню для заказчиков', 'noteLabel': 'Пояснение', 'usedBy': ['dishes', 'products'],
                  'items': items('АЛ', ['Глютен', 'Ракообразные', 'Яйца', 'Рыба', 'Арахис', 'Соя', 'Молоко', 'Орехи', 'Сельдерей', 'Горчица', 'Кунжут', 'Сульфиты', 'Люпин', 'Моллюски'])},
-    'custType': {'name': 'Типы заказчиков', 'icon': 'building', 'what': 'Кто заказывает питание', 'where': 'Карточка и список заказчиков', 'noteLabel': 'Пояснение', 'usedBy': ['customers'],
-                 'items': items('ТЗ', [('Юрлицо', 'ОсОО, АО'), ('ИП', 'Индивидуальный предприниматель'), ('Учреждение', 'Школа, детсад, больница'), ('Физлицо', '')])},
+    'custType': {'name': 'Типы заказчиков', 'icon': 'building', 'what': 'Типы юрлиц: кто заказывает питание по договору', 'where': 'Карточка и список юрлиц (у физлица типа нет)', 'noteLabel': 'Пояснение', 'usedBy': ['customers'],
+                 'items': items('ТЗ', [('Компания', 'ОсОО, АО'), ('ИП', 'Индивидуальный предприниматель'), ('Учреждение', 'Школа, детсад, больница')])},
     'payMethod': {'name': 'Способы оплаты', 'icon': 'wallet', 'what': 'Как заказчик платит', 'where': 'Заказчики, заказы, оплаты', 'noteLabel': 'Пояснение', 'usedBy': ['customers', 'payments'],
                   'items': items('СО', [('Безналичный перевод', 'По счёту за период'), ('Наличные курьеру', 'Курьер получает при доставке'), ('Мобильный кошелёк', 'Mbank, O!Деньги, Элсом'), ('Наличные в кассу', '')])},
 }
@@ -183,6 +183,7 @@ ORG_DICTS = {
     'shift': {'name': 'Смены', 'icon': 'clock', 'what': 'На какой приём пищи составляется меню и план кухни', 'noteLabel': 'Время', 'items': items('СМ', [('Обед', '12:00–14:00'), ('Завтрак', '08:00–09:30'), ('Ужин', '18:00–19:30')])},
     'vehicle': {'name': 'Транспорт', 'icon': 'send', 'what': 'Машины для рейсов', 'noteLabel': 'Госномер', 'items': items('ТР', [('Hyundai Porter', '01 KG 123 ABC'), ('Daewoo Damas', '01 KG 456 BCD'), ('Личный автомобиль курьера', '')])},
     'district': {'name': 'Районы доставки', 'icon': 'globe', 'what': 'Чтобы группировать точки при распределении по рейсам', 'noteLabel': 'Пояснение', 'items': items('РН', ['Ленинский', 'Октябрьский', 'Первомайский', 'Свердловский'])},
+    'place': {'name': 'Места доставки', 'icon': 'building', 'what': 'Места скопления точек (бизнес-центры, заводы, рынки): одна точка на карте и одна группа в распределении по рейсам и в требовании кухни', 'noteLabel': 'Пояснение', 'items': []},
     'cancel': {'name': 'Причины отмены', 'icon': 'ban', 'what': 'Почему заказ отменён', 'noteLabel': 'Пояснение', 'items': items('ПО', ['Заказчик отказался', 'Ошибка в заказе', 'Нет продуктов', 'Долг выше лимита', 'Не удалось доставить'])},
     'nd': {'name': 'Причины недоставки', 'icon': 'alert', 'what': 'Почему курьер не доставил заказ', 'noteLabel': 'Пояснение', 'items': items('ПН', ['Не было получателя', 'Неверный адрес', 'Отказ от заказа', 'Не успели к окну доставки'])},
     'wo': {'name': 'Причины списания', 'icon': 'trash', 'what': 'Почему продукты списаны вручную', 'noteLabel': 'Пояснение', 'items': items('ПС', ['Порча', 'Истёк срок', 'Пробы и дегустация', 'Прочее'])},
@@ -190,7 +191,7 @@ ORG_DICTS = {
 ORG_DICTS['shift']['items'][1]['active'] = False
 ORG_DICTS['shift']['items'][2]['active'] = False
 
-REF = {'meta': {'file': 'refDB.json', 'version': 1, 'description': 'Справочники платформы, права ролей, функции учётной политики, шкалы статусов'},
+REF = {'meta': {'file': 'refDB.json', 'version': 2, 'description': 'Справочники платформы, права ролей, функции учётной политики, шкалы статусов'},
        'permissions': PERMISSIONS, 'features': FEATURES, 'statuses': STATUSES, 'dictionaries': PLATFORM_DICTS,
        'dictionaryGroups': [{'name': 'Продукты и блюда', 'items': ['unit', 'prodCat', 'dishCat', 'allergen']}, {'name': 'Заказчики и деньги', 'items': ['custType', 'payMethod']}],
        'roleTemplates': ROLE_TEMPLATES, 'orgDictionaries': ORG_DICTS,
@@ -300,6 +301,18 @@ def expand(line, menu):
     return out
 
 
+def receipt(s, org, phone):
+    """Чек оплаты в демо: картинка «скриншот перевода» из мобильного кошелька."""
+    v = f'{s:,.0f}'.replace(',', ' ')
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="150" height="210"><rect width="150" height="210" rx="14" fill="#f2f5f7"/><rect x="10" y="10" width="130" height="30" rx="8" fill="#0a7d5a"/>'
+           f'<text x="75" y="30" font-size="12" font-weight="700" text-anchor="middle" fill="#fff" font-family="sans-serif">Mbank · перевод</text><circle cx="75" cy="74" r="17" fill="#2e9e5b"/>'
+           f'<path d="M66 74l6 6 12-12" stroke="#fff" stroke-width="4" fill="none"/><text x="75" y="112" font-size="11" text-anchor="middle" fill="#555" font-family="sans-serif">Перевод выполнен</text>'
+           f'<text x="75" y="140" font-size="19" font-weight="700" text-anchor="middle" fill="#222" font-family="sans-serif">{v} сом</text>'
+           f'<text x="75" y="164" font-size="9" text-anchor="middle" fill="#777" font-family="sans-serif">{org.replace("«", "").replace("»", "")[:24]}</text>'
+           f'<text x="75" y="182" font-size="9" text-anchor="middle" fill="#777" font-family="sans-serif">с номера {phone[-7:]}</text></svg>')
+    return 'data:image/svg+xml;utf8,' + urllib.parse.quote(svg, safe='')
+
+
 def hist(ent, rid, what, at, who):
     return {'id': f'h{random.randrange(10 ** 9)}', 'at': at, 'who': who, 'ent': ent, 'rid': rid, 'what': what}
 
@@ -334,6 +347,7 @@ def make_tenant(cfg):
     acc = cfg['acc']
     # Справочники организации
     T['dicts'] = json.loads(json.dumps(ORG_DICTS))
+    T['dicts']['place']['items'] = cfg.get('places', [])
     # Продукты
     pids = cfg['products']
     for p in PRODUCTS:
@@ -372,21 +386,24 @@ def make_tenant(cfg):
         for c in s[5]:
             sup_of[c] = s[0]
     # Заказчики
-    CUS = cfg['customers']
+    CUS = cfg['customers'] + cfg.get('persons', [])
     for c in CUS:
-        rec = {'id': c['id'], 'name': c['name'], 'type': c['type'], 'inn': c.get('inn', ''), 'contact': c.get('contact', ''), 'phone': c['phone'], 'email': c.get('email', ''), 'contract': c.get('contract', ''),
+        kind = c.get('kind', 'org')
+        since = st(c.get('since', -50), '10:00' if kind == 'org' else '11:20')
+        rec = {'id': c['id'], 'kind': kind, 'name': c['name'], 'type': c.get('type', ''), 'inn': c.get('inn', ''), 'contact': c.get('contact', ''), 'phone': c['phone'], 'email': c.get('email', ''), 'contract': c.get('contract', ''),
                'contractDate': c.get('contractDate', ''), 'pay': c['pay'], 'delay': c.get('delay', 7), 'limit': c.get('limit'), 'price': 'ind' if c.get('prices') else 'base', 'disc': c.get('disc', 0),
                'prices': c.get('prices', {}), 'resp': c.get('resp', mgr), 'note': c.get('note', ''), 'points': c['points'], 'status': 'Активен',
-               '_cb': owner, '_ub': owner, '_ca': st(-50, '10:00'), '_ua': st(-50, '10:00'), 'sh': [{'at': st(-50, '10:00'), 'from': '', 'to': 'Активен', 'who': owner, 'note': 'Заказчик добавлен'}]}
+               '_cb': owner if kind == 'org' else mgr, '_ub': owner if kind == 'org' else mgr, '_ca': since, '_ua': since,
+               'sh': [{'at': since, 'from': '', 'to': 'Активен', 'who': owner if kind == 'org' else mgr, 'note': 'Заказчик добавлен' if kind == 'org' else 'Клиент добавлен при быстром заказе'}]}
         if c.get('status') == 'Приостановлен':
             rec['status'] = 'Приостановлен'
-            rec['sh'].append({'at': st(-3, '11:00'), 'from': 'Активен', 'to': 'Приостановлен', 'who': acc, 'note': c.get('why', '')})
+            rec['sh'].append({'at': st(-3, '11:00'), 'from': 'Активен', 'to': 'Приостановлен', 'who': acc if kind == 'org' else mgr, 'note': c.get('why', '')})
         if c.get('status') == 'В архиве':
             rec['sh'].append({'at': st(-20, '11:00'), 'from': 'Активен', 'to': 'Приостановлен', 'who': mgr, 'note': 'Закрыли офис'})
             rec['sh'].append({'at': st(-19, '11:00'), 'from': 'Приостановлен', 'to': 'В архиве', 'who': mgr, 'note': 'Договор расторгнут, долг закрыт'})
             rec['status'] = 'В архиве'
         T['customers'].append(rec)
-        T['history'].append(hist('customer', c['id'], 'Заказчик добавлен', st(-50, '10:00'), owner))
+        T['history'].append(hist('customer', c['id'], 'Заказчик добавлен' if kind == 'org' else 'Физлицо добавлено при быстром заказе', since, rec['_cb']))
     CM = {c['id']: c for c in T['customers']}
 
     def price(cu, kind, iid, mp):
@@ -403,6 +420,10 @@ def make_tenant(cfg):
     cook = cfg['cook']
     T['_cons'] = {}
     day_orders = {}
+    late, pre_paid, prepays = set(), {}, []
+
+    def ptof(o):
+        return o.get('addr') or next(p for p in CM[o['cust']]['points'] if p['id'] == o['point'])
     # ═════ Дни: меню, заказы, план, рейсы, накладные ═════
     for n in range(-14, 8):
         if wd(n) > 5:
@@ -438,20 +459,31 @@ def make_tenant(cfg):
         day_orders[n] = []
         for o in ords:
             c = CM[o['cust']]
-            pt = next(p for p in c['points'] if p['id'] == o['point'])
+            pt = o.get('addr') or next(p for p in c['points'] if p['id'] == o['point'])
             oid = f'o{len(T["orders"]) + 1}'
-            created = st(n - 1, '10:' + f'{random.randrange(60):02d}') if o['src'] != 'Регулярный' else st(n - 2, '16:00')
-            rec = {'id': oid, 'no': no('order', 'З'), 'cust': o['cust'], 'point': o['point'], 'pickup': False, 'date': d(n), 'shift': 'СМ-001', 'time': pt['win'], 'lines': o['lines'], 'pay': c['pay'],
-                   'note': o.get('note', ''), 'resp': c['resp'], 'src': o['src'], 'reg': o.get('reg', ''), 'trip': '', 'changed': False, 'limitFlag': False, 'deliv': None, 'nd': None, 'cash': 0,
+            quick = o['src'] == 'Быстрый заказ'
+            if o.get('same'):
+                created = st(n, o['same'])
+            elif o['src'] == 'Регулярный':
+                created = st(n - 2, '16:00')
+            else:
+                created = st(n - 1, (f'1{random.randrange(1, 6)}:' if quick else '10:') + f'{random.randrange(60):02d}')
+            rec = {'id': oid, 'no': no('order', 'З'), 'cust': o['cust'], 'point': '' if o.get('addr') else o['point'], 'pickup': False, 'date': d(n), 'shift': 'СМ-001', 'time': o.get('time') or pt['win'], 'lines': o['lines'],
+                   'pay': o.get('pay') or c['pay'], 'note': o.get('note', ''), 'resp': c['resp'], 'src': o['src'], 'reg': o.get('reg', ''), 'trip': '', 'changed': False, 'limitFlag': False, 'deliv': None, 'nd': None, 'cash': 0,
                    '_cb': 'system' if o['src'] == 'Регулярный' else (o.get('by') or mgr), '_ub': mgr, '_ca': created, '_ua': created}
-            sh = [{'at': created, 'from': '', 'to': 'Новый', 'who': rec['_cb'], 'note': 'Создан по регулярному заказу' if o['src'] == 'Регулярный' else 'Заказ оформлен'}]
+            if o.get('addr'):
+                rec['addr'] = o['addr']
+            sh = [{'at': created, 'from': '', 'to': 'Новый', 'who': rec['_cb'], 'note': {'Регулярный': 'Создан по регулярному заказу', 'Быстрый заказ': 'Быстрый заказ'}.get(o['src'], 'Заказ оформлен')}]
             final = o.get('final') or ('Доставлен' if n < 0 else 'Готовится' if n == 0 else 'Принят')
             path = ['Новый', 'Принят', 'Готовится', 'Готов', 'В пути', 'Доставлен']
             target = path.index(final) if final in path else (4 if final == 'Не доставлен' else 1)
-            times = {1: st(n - 1, '09:15'), 2: st(n, '07:30'), 3: st(n, '11:10'), 4: st(n, '11:30'), 5: st(n, dlv_time(pt['win']))}
-            whos = {1: mgr, 2: chef, 3: chef, 4: couriers[0], 5: couriers[0]}
+            # быстрый заказ и заказ сотрудника принимаются сразу; принятый, когда план уже «В работе», сразу «Готовится»
+            times = {1: created if o['src'] in ('Быстрый заказ', 'Сотрудник') else st(n - 1, '11:05') if o['src'] == 'Заказчик в приложении' else st(n - 1, '09:15'),
+                     2: created if o.get('same') else st(n, '07:30'), 3: st(n, '11:10'), 4: st(n, '11:30'), 5: st(n, dlv_time(rec['time']))}
+            whos = {1: rec['_cb'] if o['src'] in ('Быстрый заказ', 'Сотрудник') else mgr, 2: 'system' if o.get('same') else chef, 3: chef, 4: couriers[0], 5: couriers[0]}
+            notes = {1: 'Быстрый заказ' if quick else '', 2: 'План кухни уже в работе' if o.get('same') else ''}
             for i in range(1, target + 1):
-                sh.append({'at': times[i], 'from': path[i - 1], 'to': path[i], 'who': whos[i], 'note': ''})
+                sh.append({'at': times[i], 'from': path[i - 1], 'to': path[i], 'who': whos[i], 'note': notes.get(i, '')})
             if final == 'Не доставлен':
                 sh.append({'at': st(n, '12:40'), 'from': 'В пути', 'to': 'Не доставлен', 'who': couriers[0], 'note': 'Не было получателя'})
                 rec['nd'] = {'reason': 'ПН-001', 'photo': '', 'at': st(n, '12:40')}
@@ -466,16 +498,27 @@ def make_tenant(cfg):
                 rec['limitFlag'] = True
             T['orders'].append(rec)
             day_orders[n].append(rec)
+            if o.get('same'):
+                late.add(oid)
+            # оплата заранее: физлицо платит переводом при быстром заказе (с чеком), частичная предоплата — остаток курьеру
+            s_all = round(sum(l['qty'] * l['price'] for l in rec['lines']), 2)
+            pre = s_all if c['kind'] == 'person' and rec['pay'] == 'СО-003' and not o.get('unpaid') and final != 'Отменён' else o.get('pre', 0)
+            if pre:
+                pre_paid[oid] = pre
+                prepays.append({'date': created[:10], 'cust': o['cust'], 'sum': pre, 'method': 'СО-003', 'by': rec['_cb'], 'note': 'Оплата при быстром заказе' if quick else 'Предоплата',
+                                'file': receipt(pre, cfg['org']['name'], c['phone']), 'order': oid, 'at': created})
         # план кухни
         if n <= 1:
             pst = 'Выполнен' if n < 0 else 'В работе' if n == 0 else 'Черновик'
-            qty = {}
+            qty, qfix = {}, {}
             for o in day_orders[n]:
                 if o['status'] == 'Отменён':
                     continue
                 for ln in o['lines']:
                     for k, v in expand(ln, menu).items():
                         qty[k] = qty.get(k, 0) + v
+                        if o['id'] not in late:
+                            qfix[k] = qfix.get(k, 0) + v
             psh = [{'at': st(n - 1, '16:05'), 'from': '', 'to': 'Черновик', 'who': 'system', 'note': 'План создан по заказам'}]
             if pst != 'Черновик':
                 psh += [{'at': st(n - 1, '16:30'), 'from': 'Черновик', 'to': 'Утверждён', 'who': chef, 'note': ''}, {'at': st(n, '07:30'), 'from': 'Утверждён', 'to': 'В работе', 'who': chef, 'note': ''}]
@@ -488,7 +531,7 @@ def make_tenant(cfg):
                 out = {k: qty[k] for k in done}
             pid = f'pl{n + 100}'
             plan = {'id': pid, 'date': d(n), 'shift': 'СМ-001', 'status': pst, 'sh': psh, 'extra': {}, 'out': out, 'cook': {k: (cook[0] if i % 2 == 0 else cook[-1]) for i, k in enumerate(qty)},
-                    'fixed': qty if pst != 'Черновик' else {}, '_cb': 'system', '_ub': chef, '_ca': psh[0]['at'], '_ua': psh[-1]['at']}
+                    'fixed': qfix if pst != 'Черновик' else {}, '_cb': 'system', '_ub': chef, '_ca': psh[0]['at'], '_ua': psh[-1]['at']}
             T['plans'].append(plan)
             if pst == 'Выполнен':
                 acc_n = {}
@@ -499,11 +542,14 @@ def make_tenant(cfg):
                                        'sh': [{'at': st(n, '11:20'), 'from': '', 'to': 'Проведён', 'who': 'system', 'note': 'Списание на производство по плану кухни'}], '_cb': 'system', '_ub': 'system', '_ca': st(n, '11:20'), '_ua': st(n, '11:20')})
                 for p, q in acc_n.items():
                     T['_cons'][p] = T['_cons'].get(p, 0) + q
-        # рейсы
+        # рейсы: два курьера делят город по районам (запад и юг — первый, центр и восток — второй); заказы одного места едут вместе
         if n <= 0:
-            dl = [o for o in day_orders[n] if o['status'] in ('В пути', 'Доставлен', 'Готовится', 'Готов')]
-            groups = [dl[0::2], dl[1::2]] if len(couriers) > 1 else [dl]
+            dl = [o for o in day_orders[n] if o['status'] in ('В пути', 'Доставлен', 'Готовится', 'Готов') and o['id'] not in late]
+            west = lambda o: ptof(o)['district'] in ('РН-001', 'РН-002')
+            groups = [[o for o in dl if west(o)], [o for o in dl if not west(o)]] if len(couriers) > 1 else [dl]
             groups[0] += [o for o in day_orders[n] if o['status'] == 'Не доставлен']
+            for grp in groups:
+                grp.sort(key=lambda o: (o['time'] or '', o['no']))
             for gi, grp in enumerate(groups):
                 if not grp:
                     continue
@@ -537,17 +583,17 @@ def make_tenant(cfg):
                         o['status'] = 'Готов'
                         o['sh'].append({'at': st(0, '11:10'), 'from': 'Готовится', 'to': 'Готов', 'who': chef, 'note': ''})
                     if o['status'] == 'Доставлен':
-                        pt = next(p for p in CM[o['cust']]['points'] if p['id'] == o['point'])
+                        pt = ptof(o)
                         o['deliv'] = {'photo': '', 'recv': pt['contact'].split(' ')[0] if pt['contact'] else 'Охрана', 'cash': 0, 'at': o['sh'][-1]['at']}
-                        if CM[o['cust']]['pay'] == 'СО-002':
-                            s = sum(l['qty'] * l['price'] for l in o['lines'])
+                        if o['pay'] == 'СО-002':
+                            s = round(sum(l['qty'] * l['price'] for l in o['lines']) - pre_paid.get(o['id'], 0), 2)
                             o['deliv']['cash'] = s
                             o['cash'] = s
                 cash = sum(o['cash'] for o in grp)
                 if cash and n < 0:
                     trip['cash'] = {'got': cash, 'sent': cash, 'at': st(n, '14:00'), 'acc': acc, 'accAt': st(n, '15:00'), 'comment': '', 'status': 'Принято'}
                 T['trips'].append(trip)
-        # накладные
+        # накладные; оплата курьеру при доставке и в кассу — после доставки
         for o in day_orders[n]:
             if o['status'] == 'Доставлен':
                 s = round(sum(l['qty'] * l['price'] for l in o['lines']), 2)
@@ -556,7 +602,14 @@ def make_tenant(cfg):
                 o['nakl'] = nid
                 if o['cash']:
                     T['payments'].append({'id': f'y{len(T["payments"]) + 1}', 'no': no('pay', 'ОП'), 'date': d(n), 'cust': o['cust'], 'sum': o['cash'], 'method': 'СО-002', 'bill': '', 'by': couriers[0], 'note': 'Получено курьером при доставке',
-                                          'file': '', 'order': o['id'], 'status': 'Проведена', 'sh': [], '_cb': couriers[0], '_ub': couriers[0], '_ca': o['sh'][-1]['at'], '_ua': o['sh'][-1]['at']})
+                                          'file': '', 'order': o['id'], 'cour': True, 'status': 'Проведена', 'sh': [], '_cb': couriers[0], '_ub': couriers[0], '_ca': o['sh'][-1]['at'], '_ua': o['sh'][-1]['at']})
+                if o['pay'] == 'СО-004':
+                    T['payments'].append({'id': f'y{len(T["payments"]) + 1}', 'no': no('pay', 'ОП'), 'date': d(n), 'cust': o['cust'], 'sum': s, 'method': 'СО-004', 'bill': '', 'by': acc, 'note': 'Оплата в кассу',
+                                          'file': '', 'order': o['id'], 'cour': False, 'status': 'Проведена', 'sh': [], '_cb': acc, '_ub': acc, '_ca': st(n, '15:30'), '_ua': st(n, '15:30')})
+        for p in prepays:
+            T['payments'].append({'id': f'y{len(T["payments"]) + 1}', 'no': no('pay', 'ОП'), 'date': p['date'], 'cust': p['cust'], 'sum': p['sum'], 'method': p['method'], 'bill': '', 'by': p['by'], 'note': p['note'],
+                                  'file': p['file'], 'order': p['order'], 'cour': False, 'status': 'Проведена', 'sh': [], '_cb': p['by'], '_ub': p['by'], '_ca': p['at'], '_ua': p['at']})
+        prepays.clear()
     # регулярно ли не доставлено / отменено — уже в adhoc
     # Счета по понедельникам за прошлую неделю и оплаты
     for n in range(-14, 1):
@@ -575,10 +628,10 @@ def make_tenant(cfg):
             behaviour = cfg['payers'].get(c['id'], 'ok')
             if behaviour == 'ok' or (behaviour == 'late' and n < -7):
                 T['payments'].append({'id': f'y{len(T["payments"]) + 1}', 'no': no('pay', 'ОП'), 'date': d(n + 2), 'cust': c['id'], 'sum': s, 'method': 'СО-001', 'bill': bid, 'by': acc, 'note': '',
-                                      'file': '', 'order': '', 'status': 'Проведена', 'sh': [], '_cb': acc, '_ub': acc, '_ca': st(n + 2, '11:00'), '_ua': st(n + 2, '11:00')})
+                                      'file': '', 'order': '', 'cour': False, 'status': 'Проведена', 'sh': [], '_cb': acc, '_ub': acc, '_ca': st(n + 2, '11:00'), '_ua': st(n + 2, '11:00')})
             if behaviour == 'part':
                 T['payments'].append({'id': f'y{len(T["payments"]) + 1}', 'no': no('pay', 'ОП'), 'date': d(n + 3), 'cust': c['id'], 'sum': round(s / 2, -2), 'method': 'СО-003', 'bill': bid, 'by': acc, 'note': 'Частичная оплата',
-                                      'file': '', 'order': '', 'status': 'Проведена', 'sh': [], '_cb': acc, '_ub': acc, '_ca': st(n + 3, '11:00'), '_ua': st(n + 3, '11:00')})
+                                      'file': '', 'order': '', 'cour': False, 'status': 'Проведена', 'sh': [], '_cb': acc, '_ub': acc, '_ca': st(n + 3, '11:00'), '_ua': st(n + 3, '11:00')})
     if T['payments']:
         bad = next((p for p in T['payments'] if p['method'] == 'СО-001'), None)
         if bad:
@@ -659,28 +712,53 @@ EMP1 = [('e1', 'Жумабаева Айгуль Маратовна', 'owner', '+
         ('e9', 'Алиева Айгерим Жоробековна', 'acc', '+996 555 100 009', 'Бухгалтер'), ('e10', 'Петрова Елена Викторовна', 'customer', '+996 700 300 010', 'Представитель заказчика', 'Активен', 'c1'),
         ('e11', 'Бакирова Чолпон Асылбековна', 'customer', '+996 700 300 011', 'Завхоз', 'Активен', 'c2'), ('e12', 'Усенов Нурбек Айбекович', 'cook', '+996 555 100 012', 'Повар', 'Приглашён'),
         ('e13', 'Ли Виктор Сергеевич', 'courier', '+996 555 100 013', 'Курьер', 'Заблокирован')]
-PT = lambda i, n, a, m, c, ph, w, dist: {'id': i, 'name': n, 'addr': a, 'mark': m, 'contact': c, 'phone': ph, 'win': w, 'geo': '', 'district': dist}
+# Точка доставки юрлица и адрес физлица: место (справочник «Места доставки») подставляет адрес, район и геоточку; approx — геоточка по району, пока адрес не уточнён
+PT = lambda i, n, a, m, c, ph, w, dist, geo='', place='', approx=False: {'id': i, 'name': n, 'addr': a, 'mark': m, 'place': place, 'contact': c, 'phone': ph, 'win': w, 'district': dist, 'geo': geo, 'approx': approx}
+# Координаты на схеме Бишкека [широта, долгота]
+AVRORA, CAPITAL = [42.8650, 74.5880], [42.8767, 74.6085]
+PLACES1 = [{'code': 'МД-001', 'name': 'БЦ «Аврора»', 'note': 'Вход с пр. Манаса, охрана на 1 этаже; заказы оставлять на ресепшн этажа', 'active': True, 'order': 1, 'addr': 'пр. Манаса, 40', 'district': 'РН-004', 'geo': AVRORA},
+           {'code': 'МД-002', 'name': 'БЦ «Капитал»', 'note': 'Парковка со двора, пропуск у охраны', 'active': True, 'order': 2, 'addr': 'пр. Чуй, 128', 'district': 'РН-003', 'geo': CAPITAL}]
 CUST1 = [
     {'id': 'c1', 'name': 'ОсОО «Кыргыз Текстиль»', 'type': 'ТЗ-001', 'inn': '01207201110012', 'contact': 'Петрова Елена', 'phone': '+996 312 300 101', 'email': 'office@kg-textile.kg', 'contract': '14/2026', 'contractDate': d(-60),
      'pay': 'СО-001', 'delay': 10, 'limit': 150000, 'prices': {'k1': 265}, 'resp': 'e2',
-     'points': [PT('pt1', 'Цех № 1', 'ул. Ахунбаева, 119', 'Проходная со стороны парковки', 'Иванов Сергей', '+996 700 300 111', '12:00–12:30', 'РН-002'),
-                PT('pt2', 'Цех № 2', 'ул. Ахунбаева, 119/2', 'Второй корпус, столовая на 1 этаже', 'Абдыкеримова Жылдыз', '+996 700 300 112', '12:30–13:00', 'РН-002')]},
+     'points': [PT('pt1', 'Цех № 1', 'ул. Ахунбаева, 119', 'Проходная со стороны парковки', 'Иванов Сергей', '+996 700 300 111', '12:00–12:30', 'РН-002', [42.8442, 74.6068]),
+                PT('pt2', 'Цех № 2', 'ул. Ахунбаева, 119/2', 'Второй корпус, столовая на 1 этаже', 'Абдыкеримова Жылдыз', '+996 700 300 112', '12:30–13:00', 'РН-002', [42.8436, 74.6092])]},
     {'id': 'c2', 'name': 'Школа-гимназия № 5', 'type': 'ТЗ-003', 'inn': '02010199810025', 'contact': 'Бакирова Чолпон', 'phone': '+996 312 300 102', 'contract': '3-ш/2026', 'contractDate': d(-55),
-     'pay': 'СО-001', 'delay': 15, 'disc': 5, 'resp': 'e2', 'points': [PT('pt3', 'Столовая школы', 'ул. Токтогула, 98', 'Вход со двора', 'Бакирова Чолпон', '+996 700 300 011', '11:30–12:00', 'РН-001')]},
+     'pay': 'СО-001', 'delay': 15, 'disc': 5, 'resp': 'e2', 'points': [PT('pt3', 'Столовая школы', 'ул. Токтогула, 98', 'Вход со двора', 'Бакирова Чолпон', '+996 700 300 011', '11:30–12:00', 'РН-001', [42.8738, 74.5995])]},
     {'id': 'c3', 'name': 'ОсОО «Ала-Тоо Логистик»', 'type': 'ТЗ-001', 'inn': '01504201910033', 'contact': 'Жээнбеков Улан', 'phone': '+996 555 300 103', 'pay': 'СО-001', 'delay': 7, 'resp': 'e2',
-     'points': [PT('pt4', 'Склад', 'ул. Жибек Жолу, 504', 'Ворота № 3', 'Жээнбеков Улан', '+996 555 300 103', '12:30–13:00', 'РН-003')]},
+     'points': [PT('pt4', 'Склад', 'ул. Жибек Жолу, 504', 'Ворота № 3', 'Жээнбеков Улан', '+996 555 300 103', '12:30–13:00', 'РН-003', [42.8885, 74.6560])]},
     {'id': 'c4', 'name': 'ОсОО «Ак-Жол Консалтинг»', 'type': 'ТЗ-001', 'inn': '01112201610044', 'contact': 'Садыкова Айжан', 'phone': '+996 555 300 104', 'pay': 'СО-003', 'delay': 7, 'resp': 'e2',
-     'points': [PT('pt5', 'Офис', 'БЦ «Аврора», пр. Манаса, 40, 5 этаж', 'Ресепшн', 'Садыкова Айжан', '+996 555 300 104', '13:00–13:30', 'РН-004')]},
+     'points': [PT('pt5', 'Офис', 'пр. Манаса, 40', '5 этаж, ресепшн', 'Садыкова Айжан', '+996 555 300 104', '13:00–13:30', 'РН-004', AVRORA, 'МД-001')]},
     {'id': 'c5', 'name': 'ИП Садыков (автосервис)', 'type': 'ТЗ-002', 'inn': '21503198700155', 'contact': 'Садыков Марат', 'phone': '+996 777 300 105', 'pay': 'СО-002', 'delay': 0, 'resp': 'e2',
-     'points': [PT('pt6', 'Автосервис', 'ул. Льва Толстого, 17', 'Бокс 2', 'Садыков Марат', '+996 777 300 105', '12:00–12:30', 'РН-001')]},
+     'points': [PT('pt6', 'Автосервис', 'ул. Льва Толстого, 17', 'Бокс 2', 'Садыков Марат', '+996 777 300 105', '12:00–12:30', 'РН-001', [42.8642, 74.5590])]},
     {'id': 'c6', 'name': 'Медцентр «Шифа»', 'type': 'ТЗ-003', 'inn': '02105201210066', 'contact': 'Касымова Айнура', 'phone': '+996 312 300 106', 'pay': 'СО-001', 'delay': 7, 'resp': 'e2',
-     'points': [PT('pt7', 'Медцентр', 'ул. Исанова, 62', 'Служебный вход', 'Касымова Айнура', '+996 312 300 106', '13:00–13:30', 'РН-004')]},
+     'points': [PT('pt7', 'Медцентр', 'ул. Исанова, 62', 'Служебный вход', 'Касымова Айнура', '+996 312 300 106', '13:00–13:30', 'РН-004', [42.8805, 74.5935])]},
     {'id': 'c7', 'name': 'ОсОО «БишкекСтрой»', 'type': 'ТЗ-001', 'inn': '01803201810077', 'contact': 'Мурзаев Канат', 'phone': '+996 555 300 107', 'pay': 'СО-001', 'delay': 5, 'limit': 40000, 'resp': 'e2',
-     'points': [PT('pt8', 'Стройплощадка «Южные ворота»', 'мкр. Джал, ул. Арча-Бешик', 'Вагончик прораба', 'Мурзаев Канат', '+996 555 300 107', '12:00–12:30', 'РН-002')]},
+     'points': [PT('pt8', 'Стройплощадка «Южные ворота»', 'мкр. Джал, ул. Арча-Бешик', 'Вагончик прораба', 'Мурзаев Канат', '+996 555 300 107', '12:00–12:30', 'РН-002', [42.8240, 74.5795])]},
     {'id': 'c8', 'name': 'Детский сад «Балапан»', 'type': 'ТЗ-003', 'inn': '02208201510088', 'contact': 'Осмонова Гулай', 'phone': '+996 312 300 108', 'pay': 'СО-001', 'delay': 10, 'resp': 'e2', 'status': 'Приостановлен', 'why': 'Карантин до конца месяца',
-     'points': [PT('pt9', 'Детский сад', 'ул. Чокморова, 211', '', 'Осмонова Гулай', '+996 312 300 108', '11:30–12:00', 'РН-003')]},
+     'points': [PT('pt9', 'Детский сад', 'ул. Чокморова, 211', '', 'Осмонова Гулай', '+996 312 300 108', '11:30–12:00', 'РН-003', [42.8820, 74.6290])]},
     {'id': 'c9', 'name': 'ОсОО «Старт-Ап Хаб»', 'type': 'ТЗ-001', 'inn': '01909201910099', 'contact': 'Ким Анна', 'phone': '+996 555 300 109', 'pay': 'СО-003', 'delay': 7, 'resp': 'e2', 'status': 'В архиве',
-     'points': [PT('pt10', 'Офис', 'ул. Киевская, 77', '', 'Ким Анна', '+996 555 300 109', '13:00–13:30', 'РН-001')]},
+     'points': [PT('pt10', 'Офис', 'ул. Киевская, 77', '', 'Ким Анна', '+996 555 300 109', '13:00–13:30', 'РН-001', [42.8760, 74.6040])]},
+    {'id': 'c10', 'name': 'ОсОО «Нур Софт»', 'type': 'ТЗ-001', 'inn': '01310202110110', 'contact': 'Абдиев Эмиль', 'phone': '+996 555 300 110', 'pay': 'СО-001', 'delay': 7, 'resp': 'e2', 'since': -40,
+     'points': [PT('pt11', 'Офис', 'пр. Манаса, 40', '6 этаж, кухня офиса', 'Абдиев Эмиль', '+996 555 300 110', '13:00–13:30', 'РН-004', AVRORA, 'МД-001')]},
+    {'id': 'c11', 'name': 'ИП Абдыкадырова (нотариус)', 'type': 'ТЗ-002', 'inn': '21106198500111', 'contact': 'Абдыкадырова Гульмира', 'phone': '+996 700 300 111', 'pay': 'СО-002', 'delay': 0, 'resp': 'e2', 'since': -35,
+     'points': [PT('pt12', 'Нотариальная контора', 'пр. Манаса, 40', '1 этаж, офис 104', 'Абдыкадырова Гульмира', '+996 700 300 111', '13:00–13:30', 'РН-004', AVRORA, 'МД-001')]},
+]
+# Физлица: создаются сами при быстром заказе; адреса — в карточке
+PR = lambda i, n, ph, pay, pts, since, **k: {'id': i, 'kind': 'person', 'name': n, 'phone': ph, 'pay': pay, 'delay': 0, 'limit': None, 'resp': 'e2', 'since': since, 'points': pts, **k}
+PERSONS1 = [
+    PR('c20', 'Нургуль Асанова', '+996 555 412 305', 'СО-003', [PT('pa1', 'БЦ «Аврора»', 'пр. Манаса, 40', 'офис 305, 3 этаж', 'Нургуль', '+996 555 412 305', '', 'РН-004', AVRORA, 'МД-001')], -30, note='Без лука'),
+    PR('c21', 'Тимур Бекжанов', '+996 700 518 410', 'СО-003', [PT('pb1', 'БЦ «Аврора»', 'пр. Манаса, 40', 'офис 410, 4 этаж', 'Тимур', '+996 700 518 410', '', 'РН-004', AVRORA, 'МД-001')], -26),
+    PR('c22', 'Алина Ким', '+996 772 220 214', 'СО-002', [PT('pc1', 'БЦ «Аврора»', 'пр. Манаса, 40', 'офис 214, 2 этаж', 'Алина', '+996 772 220 214', '', 'РН-004', AVRORA, 'МД-001')], -21),
+    PR('c23', 'Эрмек Сыдыков', '+996 555 730 118', 'СО-003', [PT('pd1', 'БЦ «Капитал»', 'пр. Чуй, 128', '7 этаж, офис 703', 'Эрмек', '+996 555 730 118', '', 'РН-003', CAPITAL, 'МД-002')], -24),
+    PR('c24', 'Жибек Токтосунова', '+996 709 115 044', 'СО-004', [PT('pe1', 'БЦ «Капитал»', 'пр. Чуй, 128', '9 этаж, офис 902', 'Жибек', '+996 709 115 044', '', 'РН-003', CAPITAL, 'МД-002')], -18, note='Платит в кассу'),
+    PR('c25', 'Светлана Ким', '+996 555 908 771', 'СО-003', [PT('pf1', 'мкр. Асанбай, 25', 'мкр. Асанбай, 25', 'подъезд 2, кв. 41', 'Светлана', '+996 555 908 771', '', 'РН-002', [42.8255, 74.6180]),
+                                                            PT('pf2', 'Работа', 'ул. Киевская, 95', 'офис 3', 'Светлана', '+996 555 908 771', '', 'РН-001', [42.8752, 74.5955])], -16, disc=5, note='Аллергия на орехи'),
+    PR('c26', 'Бакыт Осмонов', '+996 777 640 220', 'СО-002', [PT('pg1', 'мкр. Восток-5, 14', 'мкр. Восток-5, 14', 'кв. 8, домофон 8', 'Бакыт', '+996 777 640 220', '', 'РН-002', [42.8330, 74.6440])], -12),
+    PR('c27', 'Айжамал Турдубаева', '+996 500 333 919', 'СО-003', [PT('ph1', '12 мкр, 3', '12 мкр, 3', 'кв. 15', 'Айжамал', '+996 500 333 919', '', 'РН-002', [42.8395, 74.6075], approx=True)], -5),
+    PR('c28', 'Руслан Алиев', '+996 555 101 020', 'СО-002', [PT('pi1', 'мкр. Джал-23, 15/1', 'мкр. Джал-23, 15/1', 'кв. 60', 'Руслан', '+996 555 101 020', '', 'РН-002')], -3),
+    PR('c29', 'Марат Жумабеков', '+996 702 404 404', 'СО-003', [PT('pj1', 'ул. Боконбаева, 120', 'ул. Боконбаева, 120', 'кв. 7', 'Марат', '+996 702 404 404', '', 'РН-003', [42.8712, 74.6020])], -28,
+       status='Приостановлен', why='Дважды не принял заказ'),
 ]
 
 
@@ -699,16 +777,66 @@ def adhoc1(n, menu):
             out.append({'cust': 'c3', 'point': 'pt4', 'lines': [{'kind': 'c', 'id': 'k1', 'qty': 10}], 'src': 'Сотрудник', 'final': 'Отменён'})
         if n == 0:
             out.append({'cust': 'c6', 'point': 'pt7', 'lines': [{'kind': 'd', 'id': 'd18', 'qty': 6}], 'src': 'Сотрудник', 'final': 'Не доставлен'})
+    # БЦ «Аврора»: три юрлица и физлица из офисов — место скопления на 30–40 порций
+    q = lambda k, i, x: {'kind': k, 'id': i, 'qty': x}
+    if n >= -40:
+        out.append({'cust': 'c10', 'point': 'pt11', 'lines': [q('c', 'k3', 10 if n == 1 else 12)], 'src': 'Сотрудник'})
+    if n >= -35:
+        out.append({'cust': 'c11', 'point': 'pt12', 'lines': [q('c', 'k1', 3 if n == 1 else 4)], 'src': 'Сотрудник'})
+    return out + persons1(n)
+
+
+def persons1(n):
+    """Заказы физлиц: быстрый заказ по телефону; same — принят сегодня, когда план кухни уже в работе; pre — предоплата; unpaid — ещё не оплачен."""
+    q = lambda k, i, x: {'kind': k, 'id': i, 'qty': x}
+    out = []
+
+    def add(cust, point, lines, since, **k):
+        if n >= since:
+            out.append({'cust': cust, 'point': point, 'lines': lines, 'src': 'Быстрый заказ', **k})
+    if n <= 0:
+        add('c20', 'pa1', [q('c', 'k3', 2)], -30, time='12:30', note='Без лука')
+        if n == 0:
+            add('c21', 'pb1', [q('c', 'k1', 3)], -26, time='12:30', same='09:40')
+        elif n % 2 == 0:
+            add('c21', 'pb1', [q('c', 'k1', 3)], -26, time='12:30')
+        if wd(n) in (1, 3, 4, 5):
+            add('c22', 'pc1', [q('c', 'k2', 1), q('d', 'd23', 1)], -21, time='13:00')
+        add('c23', 'pd1', [q('c', 'k1', 2)], -24, time='13:00')
+        add('c24', 'pe1', [q('c', 'k3', 1)], -18, time='13:00')
+        if wd(n) in (2, 4):
+            add('c25', 'pf1', [q('c', 'k1', 2)], -16, time='12:00', note='Без орехов')
+        if wd(n) == 1:
+            add('c25', 'pf2', [q('c', 'k2', 1)], -16, time='13:00', note='Без орехов')
+        if n in (-7, -2, 0):
+            add('c26', 'pg1', [q('c', 'k1', 2)], -12, time='13:00', pre=200 if n == 0 else 0, note='Позвонить за 10 минут' if n == 0 else '')
+        if n == 0:
+            add('c27', 'ph1', [q('c', 'k2', 1)], -5, time='12:30', same='10:05', unpaid=True)
+        elif n >= -4:
+            add('c27', 'ph1', [q('c', 'k2', 1)], -5, time='12:30')
+        if n in (-1, 0):
+            add('c28', 'pi1', [q('c', 'k1', 3)], -3, time='13:30')
+        if n in (-12, -10, -8):
+            add('c29', 'pj1', [q('c', 'k1', 1)], -28, time='13:00')
+    if n == 1:
+        add('c20', 'pa1', [q('c', 'k3', 2)], -30, time='12:30', note='Без лука')
+        add('c21', 'pb1', [q('c', 'k1', 2)], -26, time='12:30')
+        add('c22', 'pc1', [q('c', 'k2', 1)], -21, time='13:00')
+        add('c23', 'pd1', [q('c', 'k1', 2)], -24, time='13:00')
+        out.append({'cust': 'c24', 'point': 'pe1', 'lines': [q('c', 'k3', 1)], 'src': 'Сотрудник', 'final': 'Новый', 'time': '13:00'})
+        # адрес только для этого заказа: в карточку клиента не сохранён
+        add('c25', '', [q('c', 'k1', 2)], -16, time='12:30', unpaid=True, note='Без орехов',
+            addr={'id': '', 'name': 'ул. Логвиненко, 55', 'addr': 'ул. Логвиненко, 55', 'mark': 'офис 12', 'place': '', 'contact': 'Светлана', 'phone': '+996 555 908 771', 'win': '', 'district': 'РН-001', 'geo': [42.8722, 74.5962], 'approx': False})
     return out
 
 
 ORG1 = {'name': 'ОсОО «Ордо Кейтеринг»', 'legal': 'Общество с ограниченной ответственностью «Ордо Кейтеринг»', 'inn': '01405201910101', 'head': 'Жумабаева А. М.', 'phone': '+996 312 000 101',
-        'address': 'Бишкек, ул. Фучика, 3/1', 'bank': 'ОАО «Оптима Банк», р/с 1091 8200 0012 3456, БИК 109018', 'logo': '', 'tz': 'Asia/Bishkek',
+        'address': 'Бишкек, ул. Фучика, 3/1', 'geo': [42.8795, 74.6235], 'bank': 'ОАО «Оптима Банк», р/с 1091 8200 0012 3456, БИК 109018', 'logo': '', 'tz': 'Asia/Bishkek',
         'plat': {'tariff': 'Бизнес', 'status': 'Активна', 'paidTo': d(40), 'city': 'Бишкек', 'created': d(-90),
                  'sh': [{'at': st(-90, '10:00'), 'from': '', 'to': 'Пробный период', 'who': 'admin', 'note': 'Регистрация'}, {'at': st(-76, '10:00'), 'from': 'Пробный период', 'to': 'Активна', 'who': 'admin', 'note': 'Оплата тарифа «Бизнес»'}]}}
 
 T1 = make_tenant({'emps': EMP1, 'mgr': 'e2', 'chef': 'e3', 'acc': 'e9', 'store': 'e6', 'cook': ['e4', 'e5'], 'couriers': ['e7', 'e8'], 'products': [p[0] for p in PRODUCTS], 'dishes': [x[0] for x in DISHES],
-                  'customers': CUST1, 'regulars': [('c1', 'pt1', 'k1', 60), ('c1', 'pt2', 'k1', 40), ('c2', 'pt3', 'k2', 120), ('c3', 'pt4', 'k1', 25), ('c7', 'pt8', 'k1', 45), ('c8', 'pt9', 'k2', 60)],
+                  'customers': CUST1, 'persons': PERSONS1, 'places': PLACES1, 'regulars': [('c1', 'pt1', 'k1', 60), ('c1', 'pt2', 'k1', 40), ('c2', 'pt3', 'k2', 120), ('c3', 'pt4', 'k1', 25), ('c7', 'pt8', 'k1', 45), ('c8', 'pt9', 'k2', 60)],
                   'adhoc': adhoc1, 'payers': {'c7': 'none', 'c6': 'part', 'c2': 'late'}, 'low': ['p3', 'p14', 'p33'], 'org': ORG1})
 
 EMP2 = [('e1', 'Бекболотов Руслан Эмилович', 'owner', '+996 555 200 001', 'Директор'), ('e2', 'Тагаева Мээрим Кадыровна', 'chef', '+996 555 200 002', 'Шеф-повар'),
@@ -718,31 +846,35 @@ CUST2 = [
     {'id': 'c1', 'name': 'ОсОО «Кант Цемент»', 'type': 'ТЗ-001', 'inn': '01606201610201', 'contact': 'Исаков Бек', 'phone': '+996 555 400 201', 'pay': 'СО-001', 'delay': 7, 'resp': 'e1',
      'points': [PT('pt1', 'Завод', 'г. Кант, ул. Заводская, 1', 'КПП-2', 'Исаков Бек', '+996 555 400 201', '12:00–12:30', 'РН-003')]},
     {'id': 'c2', 'name': 'ОсОО «Ысык-Ата Тур»', 'type': 'ТЗ-001', 'inn': '01707201710202', 'contact': 'Омурова Алина', 'phone': '+996 555 400 202', 'pay': 'СО-003', 'delay': 3, 'resp': 'e1',
-     'points': [PT('pt2', 'Офис', 'ул. Московская, 151', '', 'Омурова Алина', '+996 555 400 202', '13:00–13:30', 'РН-001')]},
+     'points': [PT('pt2', 'Офис', 'ул. Московская, 151', '', 'Омурова Алина', '+996 555 400 202', '13:00–13:30', 'РН-001', [42.8705, 74.5890])]},
     {'id': 'c3', 'name': 'ИП Жумалиев (кафе-пекарня)', 'type': 'ТЗ-002', 'inn': '22009199100203', 'contact': 'Жумалиев Тилек', 'phone': '+996 777 400 203', 'pay': 'СО-002', 'delay': 0, 'resp': 'e1',
-     'points': [PT('pt3', 'Кафе', 'ул. Ибраимова, 24', '', 'Жумалиев Тилек', '+996 777 400 203', '11:30–12:00', 'РН-004')]},
+     'points': [PT('pt3', 'Кафе', 'ул. Ибраимова, 24', '', 'Жумалиев Тилек', '+996 777 400 203', '11:30–12:00', 'РН-004', [42.8700, 74.6150])]},
 ]
 
 
+PERSONS2 = [PR('c20', 'Айдай Мамбетова', '+996 555 880 112', 'СО-003', [PT('pa1', 'ул. Ахунбаева, 98', 'ул. Ахунбаева, 98', 'кв. 33', 'Айдай', '+996 555 880 112', '', 'РН-002', [42.8452, 74.6170])], -6, resp='e1')]
+
+
 def adhoc2(n, menu):
+    me = [{'cust': 'c20', 'point': 'pa1', 'lines': [{'kind': 'c', 'id': 'k3', 'qty': 1}], 'src': 'Быстрый заказ', 'time': '13:00', 'by': 'e1'}] if n >= -6 and (n % 2 == 0 or n == 1) else []
     if n == 1:
-        return [{'cust': 'c2', 'point': 'pt2', 'lines': [{'kind': 'c', 'id': 'k3', 'qty': 6}], 'src': 'Сотрудник', 'final': 'Новый'}]
-    return [{'cust': 'c2', 'point': 'pt2', 'lines': [{'kind': 'c', 'id': 'k3', 'qty': 6}], 'src': 'Сотрудник'}, {'cust': 'c3', 'point': 'pt3', 'lines': [{'kind': 'd', 'id': 'd18', 'qty': 20}], 'src': 'Сотрудник'}]
+        return [{'cust': 'c2', 'point': 'pt2', 'lines': [{'kind': 'c', 'id': 'k3', 'qty': 6}], 'src': 'Сотрудник', 'final': 'Новый'}] + me
+    return me + [{'cust': 'c2', 'point': 'pt2', 'lines': [{'kind': 'c', 'id': 'k3', 'qty': 6}], 'src': 'Сотрудник'}, {'cust': 'c3', 'point': 'pt3', 'lines': [{'kind': 'd', 'id': 'd18', 'qty': 20}], 'src': 'Сотрудник'}]
 
 
-ORG2 = {'name': 'Кухня «Береке»', 'legal': 'ИП Бекболотов Руслан Эмилович', 'inn': '21204198800301', 'head': 'Бекболотов Р. Э.', 'phone': '+996 555 200 000', 'address': 'Бишкек, ул. Ибраимова, 103',
+ORG2 = {'name': 'Кухня «Береке»', 'legal': 'ИП Бекболотов Руслан Эмилович', 'inn': '21204198800301', 'head': 'Бекболотов Р. Э.', 'phone': '+996 555 200 000', 'address': 'Бишкек, ул. Ибраимова, 103', 'geo': [42.8800, 74.6160],
         'bank': 'ОАО «Мбанк», р/с 1030 1200 0098 7654', 'logo': '', 'tz': 'Asia/Bishkek',
         'plat': {'tariff': 'Старт', 'status': 'Пробный период', 'paidTo': d(5), 'city': 'Бишкек', 'created': d(-9), 'sh': [{'at': st(-9, '15:00'), 'from': '', 'to': 'Пробный период', 'who': 'admin', 'note': 'Регистрация'}]}}
 T2 = make_tenant({'emps': EMP2, 'mgr': 'e1', 'chef': 'e2', 'acc': 'e3', 'store': 'e2', 'cook': ['e5'], 'couriers': ['e4'], 'products': [p[0] for p in PRODUCTS],
                   'dishes': ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'd8', 'd9', 'd10', 'd11', 'd12', 'd13', 'd14', 'd15', 'd16', 'd17', 'd18', 'd19', 'd20', 'd21', 'd22'],
-                  'customers': CUST2, 'regulars': [('c1', 'pt1', 'k1', 80)], 'adhoc': adhoc2, 'payers': {}, 'low': ['p25'], 'org': ORG2})
+                  'customers': CUST2, 'persons': PERSONS2, 'regulars': [('c1', 'pt1', 'k1', 80)], 'adhoc': adhoc2, 'payers': {}, 'low': ['p25'], 'org': ORG2})
 
-DEMO = {'meta': {'file': 'demoDB.json', 'version': 2, 'anchor': A.isoformat(),
+DEMO = {'meta': {'file': 'demoDB.json', 'version': 3, 'anchor': A.isoformat(),
                  'description': 'Две демо-организации общепита (мультитенантность): заказы, меню, кухня, склад, доставка и деньги за две недели. Даты сдвигаются от опорной meta.anchor к сегодняшнему дню'},
         'cur': 't1', 'tenants': {'t1': T1, 't2': T2},
         'platform': {'log': [{'at': st(-9, '15:00'), 'who': 'admin', 'what': 'Создана организация «Кухня «Береке»»'}], 'requests': [{'at': st(-2, '12:00'), 'who': 'e3', 'org': 'ОсОО «Ордо Кейтеринг»', 'dict': 'Категории блюд', 'value': 'Каша', 'why': 'Для завтраков в детском саду', 'status': 'Новый'}]}}
-TEM = {'meta': {'file': 'TemDB.json', 'version': 2, 'description': 'Пустая организация: как сразу после регистрации (только владелец, роли по шаблонам и справочники организации)'},
-       'cur': 't1', 'tenants': {'t1': {'organization': {'name': 'Новая организация', 'legal': '', 'inn': '', 'head': '', 'phone': '', 'address': '', 'bank': '', 'logo': '', 'tz': 'Asia/Bishkek', 'sub': 'Профиль организации',
+TEM = {'meta': {'file': 'TemDB.json', 'version': 3, 'description': 'Пустая организация: как сразу после регистрации (только владелец, роли по шаблонам и справочники организации)'},
+       'cur': 't1', 'tenants': {'t1': {'organization': {'name': 'Новая организация', 'legal': '', 'inn': '', 'head': '', 'phone': '', 'address': '', 'geo': '', 'bank': '', 'logo': '', 'tz': 'Asia/Bishkek', 'sub': 'Профиль организации',
                                                          'features': {f['id']: f['kind'] != 'off' for f in FEATURES if f['kind'] != 'core'},
                                                          'policy': {'cutoff': '16:00', 'workdays': [1, 2, 3, 4, 5], 'delay': 7, 'foodcost': 35, 'negative': True, 'reserve': 0},
                                                          'policyHistory': [], 'imports': [], 'seq': {}, 'support': None,

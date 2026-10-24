@@ -7,7 +7,7 @@
    Мультитенантность: DB.tenants = {id: данные одной организации}; DB.cur — организация, в которой сейчас работает пользователь.
    Данные организаций не пересекаются: все списки берутся только из DB.tenants[DB.cur] (в продукте это проверяет RLS на сервере).
    Рабочие данные (TemDB) живут в localStorage: всё, что пользователь ввёл, переживает перезагрузку. */
-const DB_VER=2,DB_KEY=APP.prefix+'.temdb';
+const DB_VER=3,DB_KEY=APP.prefix+'.temdb';
 const DB_FILES={demo:'demoDB.json',empty:'TemDB.json',ref:'refDB.json'};
 // Разделы данных одной организации: при добавлении сущности допишите её сюда и в demoDB.json / TemDB.json (tools/make_data.py)
 const DB_ORG_KEYS=['organization','roles','dicts','employees','customers','products','dishes','combos','menus','templates','orders','regulars','plans',
